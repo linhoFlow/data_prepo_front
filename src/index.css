@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 222.2 84% 4.9%;
+
+        --card: 0 0% 100%;
+        --card-foreground: 222.2 84% 4.9%;
+
+        --popover: 0 0% 100%;
+        --popover-foreground: 222.2 84% 4.9%;
+
+        --primary: 224 53% 40%;
+        --primary-foreground: 210 40% 98%;
+
+        --secondary: 210 40% 96.1%;
+        --secondary-foreground: 222.2 47.4% 11.2%;
+
+        --muted: 210 40% 96.1%;
+        --muted-foreground: 215.4 16.3% 46.9%;
+
+        --accent: 210 40% 96.1%;
+        --accent-foreground: 222.2 47.4% 11.2%;
+
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 210 40% 98%;
+
+        --border: 214.3 31.8% 91.4%;
+        --input: 214.3 31.8% 91.4%;
+        --ring: 222.2 84% 4.9%;
+
+        --radius: 0.75rem;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-gray-50 text-navy-900 font-sans antialiased;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+        @apply font-bold text-navy;
+    }
+}
+
+@layer components {
+    .btn-primary {
+        @apply bg-primary hover:bg-primary-700 text-white py-2.5 px-6 rounded-lg transition-all duration-300 flex items-center justify-center font-medium shadow-sm hover:shadow-md;
+    }
+
+    .btn-outline {
+        @apply border-2 border-primary text-primary hover:bg-primary hover:text-white py-2.5 px-6 rounded-lg transition-all duration-300 flex items-center justify-center font-medium;
+    }
+
+    .btn-white {
+        @apply bg-white hover:bg-gray-50 text-primary py-2.5 px-6 rounded-lg transition-all duration-300 flex items-center justify-center font-medium shadow-lg hover:shadow-xl;
+    }
+
+    .card {
+        @apply bg-white rounded-xl shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden;
+    }
+
+    .section {
+        @apply py-20 px-4 md:px-8 lg:px-12 max-w-7xl mx-auto;
+    }
+
+    .container-fluid {
+        @apply w-full px-4 md:px-8 lg:px-12 mx-auto;
+    }
+
+    .nav-link {
+        @apply text-navy-800 hover:text-primary transition-colors duration-300;
+    }
+
+    .glass {
+        @apply bg-white/10 backdrop-blur-md border border-white/20;
+    }
+
+    .glass-card {
+        @apply bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg border border-white/50;
+    }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    @apply bg-gray-100 rounded-full;
+}
+
+::-webkit-scrollbar-thumb {
+    @apply bg-navy-300 rounded-full hover:bg-navy-400;
+}
+
+/* Animations for pipeline steps */
+.step-indicator {
+    @apply relative z-10 w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-500;
+}
+
+.step-complete {
+    @apply bg-primary border-primary text-white shadow-md;
+}
+
+.step-active {
+    @apply bg-primary border-primary text-white shadow-lg ring-4 ring-primary-100;
+}
+
+.step-pending {
+    @apply bg-white border-gray-300 text-gray-400;
+}
