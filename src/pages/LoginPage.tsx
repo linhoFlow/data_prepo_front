@@ -12,13 +12,13 @@ const LoginPage = () => {
     const { login } = useAuth();
     const navigate = useNavigate();
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!email || !password) {
             setError('Veuillez remplir tous les champs');
             return;
         }
-        const success = login(email, password);
+        const success = await login(email, password);
         if (success) navigate('/app');
         else setError('Identifiants incorrects');
     };

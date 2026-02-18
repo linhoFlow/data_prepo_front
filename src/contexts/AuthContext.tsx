@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { authApi } from '../services/api';
 
 interface User {
     id: string;
@@ -10,10 +11,10 @@ interface AuthContextType {
     user: User | null;
     isGuest: boolean;
     isAuthenticated: boolean;
-    login: (email: string, password: string) => boolean;
-    register: (name: string, email: string) => void;
+    login: (email: string, password: string) => Promise<boolean>;
+    register: (name: string, email: string, password?: string) => Promise<void>;
     logout: () => void;
-    startGuestSession: () => void;
+    startGuestSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,8 +24,6 @@ export const useAuth = () => {
     if (!ctx) throw new Error('useAuth must be used within AuthProvider');
     return ctx;
 };
-
-const USERS_KEY = 'dataprep_registered_users';
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
@@ -52,59 +51,57 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
     }, []);
 
-    const register = (name: string, email: string) => {
+    const register = async (name: string, email: string, password?: string) => {
         try {
-            const stored = localStorage.getItem(USERS_KEY);
-            const users = stored ? JSON.parse(stored) : [];
-            const filtered = users.filter((u: any) => u.email !== email);
-            localStorage.setItem(USERS_KEY, JSON.stringify([...filtered, { name, email }]));
+            await authApi.register(name, email, password || 'default-pass');
         } catch (e) {
             console.error("Error registering user", e);
+            throw e;
         }
     };
 
-    const login = (email: string, _password: string): boolean => {
-        // Simulation - check registry first
-        let name = '';
+    const login = async (email: string, password: string): Promise<boolean> => {
         try {
-            const stored = localStorage.getItem(USERS_KEY);
-            const users = stored ? JSON.parse(stored) : [];
-            const registeredUser = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
-            if (registeredUser) {
-                name = registeredUser.name;
-            } else {
-                // Fallback to extraction logic
-                const namePart = email.split(/[@.]/)[0];
-                name = namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
-            }
-        } catch {
-            const namePart = email.split(/[@.]/)[0];
-            name = namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
-        }
+            const response = await authApi.login(email, password);
+            const data = response.data;
 
-        const newUser: User = {
-            id: crypto.randomUUID(),
-            email,
-            name: name,
-        };
-        setUser(newUser);
-        setIsGuest(false);
-        localStorage.setItem('dataprep_user', JSON.stringify(newUser));
-        sessionStorage.removeItem('dataprep_guest');
-        return true;
+            const newUser: User = {
+                id: data.id,
+                email: data.email,
+                name: data.name,
+            };
+
+            setUser(newUser);
+            setIsGuest(false);
+            localStorage.setItem('dataprep_user', JSON.stringify(newUser));
+            localStorage.setItem('dataprep_token', data.token);
+            sessionStorage.removeItem('dataprep_guest');
+            return true;
+        } catch (error) {
+            console.error('Login error:', error);
+            return false;
+        }
     };
 
     const logout = () => {
         setUser(null);
         setIsGuest(false);
         localStorage.removeItem('dataprep_user');
+        localStorage.removeItem('dataprep_token');
         sessionStorage.removeItem('dataprep_guest');
     };
 
-    const startGuestSession = () => {
-        setIsGuest(true);
-        setUser(null);
-        sessionStorage.setItem('dataprep_guest', 'true');
+    const startGuestSession = async () => {
+        try {
+            const response = await authApi.guestLogin();
+            const data = response.data;
+            setIsGuest(true);
+            setUser(null);
+            localStorage.setItem('dataprep_token', data.token); // Crucial for 401 fix
+            sessionStorage.setItem('dataprep_guest', 'true');
+        } catch (e) {
+            console.error("Error starting guest session", e);
+        }
     };
 
     return (

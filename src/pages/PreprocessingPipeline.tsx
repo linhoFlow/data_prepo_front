@@ -1,21 +1,9 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, Upload, FileSpreadsheet, Trash2, AlertTriangle, Database, BarChart3, Code2, Scaling, Filter, ArrowLeft, History, LogOut, ChevronRight, X, Search, TrendingUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import type { DatasetInfo, DataRow, DataColumn } from '../utils/dataProcessor';
-import {
-    parseFile,
-    computeColumnStats, removeDuplicates,
-    imputeByMean, imputeByMedian, imputeByMode, imputeByConstant,
-    imputeByFFill, imputeBFill, imputeByInterpolation, imputeKNN,
-    detectOutliersIQR, treatOutliersIQR, treatOutliersWinsor, treatOutliersZScore,
-    oneHotEncode, ordinalEncode, labelEncode,
-    minMaxScale, standardScale, robustScale,
-    correlationMatrix, exportToCSV, exportToExcel, exportToJSON, exportToXML
-} from '../utils/dataProcessor';
-import type { PreprocessingSession } from '../utils/storageService';
-import { saveSession, getSessions, deleteSession, getSessionData } from '../utils/storageService';
+import { datasetsApi, sessionsApi } from '../services/api';
 import DashboardView from '../components/dashboard/DashboardView';
 
 // Pipeline steps
@@ -51,13 +39,16 @@ const PreprocessingPipeline: React.FC = () => {
     const { user, isAuthenticated, isGuest, logout, startGuestSession } = useAuth();
     const navigate = useNavigate();
     const [currentStep, setCurrentStep] = useState<PipelineStepType>(PipelineStep.UPLOAD);
-    const [dataset, setDataset] = useState<DatasetInfo | null>(null);
-    const [originalData, setOriginalData] = useState<DataRow[]>([]);
+    const [dataset, setDataset] = useState<any | null>(null);
+    const [datasetId, setDatasetId] = useState<string | null>(null);
+    const [originalData, setOriginalData] = useState<any[]>([]);
+    const [initialColumnInfo, setInitialColumnInfo] = useState<any[]>([]);
     const [transformations, setTransformations] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [fileName, setFileName] = useState('');
     const [showHistory, setShowHistory] = useState(false);
     const [isHistorySession, setIsHistorySession] = useState(false);
+    const [history, setHistory] = useState<any[]>([]);
 
     // Ensure guest session is started if not authenticated
     React.useEffect(() => {
@@ -67,72 +58,140 @@ const PreprocessingPipeline: React.FC = () => {
     }, [isAuthenticated, isGuest, startGuestSession]);
 
     // History
-    // History refresh trigger
-    const [historyUpdate, setHistoryUpdate] = useState(0);
-    const history = useMemo(() => getSessions(isAuthenticated), [isAuthenticated, showHistory, historyUpdate]);
-
-    const handleDeleteSession = useCallback((id: string) => {
-        deleteSession(id, isAuthenticated);
-        setHistoryUpdate(prev => prev + 1);
-    }, [isAuthenticated]);
-
-    const handleSelectSession = useCallback((session: PreprocessingSession) => {
-        const fullData = getSessionData(session.id, isAuthenticated);
-        if (!fullData) {
-            alert("Erreur: Impossible de charger les données de cette session.");
-            return;
+    const fetchHistory = useCallback(async () => {
+        if (isAuthenticated) {
+            setIsLoading(true);
+            try {
+                const response = await sessionsApi.getAll();
+                setHistory(response.data);
+            } catch (err) {
+                console.error("Error fetching history", err);
+            } finally {
+                setIsLoading(false);
+            }
         }
-
-        setDataset({
-            data: fullData,
-            headers: fullData.length > 0 ? Object.keys(fullData[0]) : [],
-            rows: session.rowCount,
-            columns: session.columnCount,
-            columnInfo: [], // Optional: Recompute if needed
-        });
-        setOriginalData([...fullData]);
-        setFileName(session.fileName);
-        setTransformations(session.transformations);
-        setIsHistorySession(true);
-        setCurrentStep(PipelineStep.DASHBOARD);
-        setShowHistory(false);
     }, [isAuthenticated]);
 
-    const handleFileUpload = useCallback(async (file: File) => {
+    useEffect(() => {
+        if (showHistory) fetchHistory();
+    }, [showHistory, fetchHistory]);
+
+    const handleDeleteSession = useCallback(async (id: string) => {
+        try {
+            await sessionsApi.delete(id);
+            fetchHistory();
+        } catch (err) {
+            alert("Erreur lors de la suppression");
+        }
+    }, [fetchHistory]);
+
+    const handleSelectSession = useCallback(async (session: any) => {
         setIsLoading(true);
         try {
-            const info = await parseFile(file);
-            setDataset(info);
-            setOriginalData([...info.data]);
-            setFileName(file.name);
-            setTransformations([]);
-            setIsHistorySession(false);
-            setCurrentStep(PipelineStep.OVERVIEW);
+            const response = await sessionsApi.getOne(session.id);
+            const fullData = response.data;
+            // Note: In a real app, we might need to load the dataframe into the backend's active memory again
+            // For now, we simulate by setting the UI state with the saved data
+            setDataset({
+                data: fullData.data || [],
+                headers: fullData.headers || (fullData.data?.length > 0 ? Object.keys(fullData.data[0]) : []),
+                rows: fullData.rowCount,
+                columns: fullData.columnCount,
+                columnInfo: [], // Server could provide this
+            });
+            setOriginalData([...(fullData.data || [])]);
+            setFileName(fullData.filename);
+            setTransformations(fullData.pipeline || []);
+            setIsHistorySession(true);
+            setCurrentStep(PipelineStep.DASHBOARD);
+            setShowHistory(false);
         } catch (err) {
-            alert('Erreur: ' + (err as Error).message);
+            alert("Erreur: Impossible de charger les données de cette session.");
         } finally {
             setIsLoading(false);
         }
     }, []);
 
-    const updateDataset = useCallback((newData: DataRow[], transformation: string) => {
-        if (!dataset) return;
-        const headers = newData.length > 0 ? Object.keys(newData[0]) : dataset.headers;
-        const columnInfo: DataColumn[] = headers.map((name) => {
-            const values = newData.map((row) => row[name]);
-            const nonNull = values.filter((v) => v !== null && v !== undefined && v !== '');
-            return {
-                name,
-                type: dataset.columnInfo.find((c) => c.name === name)?.type || 'unknown',
-                nullCount: values.length - nonNull.length,
-                nullPercentage: newData.length > 0 ? ((values.length - nonNull.length) / newData.length) * 100 : 0,
-                uniqueCount: new Set(nonNull.map(String)).size,
-                sampleValues: nonNull.slice(0, 5),
+    const handleFileUpload = useCallback(async (file: File) => {
+        setIsLoading(true);
+        try {
+            console.log("Démarrage de l'upload pour:", file.name, "taille:", file.size);
+            const response = await datasetsApi.upload(file);
+            let info = response.data;
+            console.log("Upload réussi. Analyse V3.3...");
+
+            // Correction pour les NaN/Infinity si le serveur a envoyé du texte brut
+            if (typeof info === 'string') {
+                try {
+                    const cleaned = info.replace(/\bNaN\b/g, "null").replace(/\bInfinity\b/g, "null");
+                    info = JSON.parse(cleaned);
+                } catch (e) {
+                    console.warn("Échec du parsing manuel.");
+                }
+            }
+
+            // Fallback d'identifiant ultra-permissif
+            let actualId = info?.id || info?._id || info?.dataset_id || info?.FORCE_VERSION;
+
+            if (!actualId && info?.data && Array.isArray(info.data)) {
+                actualId = `id_auto_${Date.now()}`;
+                console.warn("ID manquant, génération d'un ID auto.");
+            }
+
+            if (!info || typeof info !== 'object' || Array.isArray(info) || !actualId || !info.data) {
+                console.error("Structure invalide:", info);
+                throw new Error("Impossible de lire les données du serveur (Format JSON invalide).");
+            }
+
+            const resilientInfo = {
+                ...info,
+                id: info.id || actualId,
+                dataset_id: info.dataset_id || actualId
             };
-        });
-        setDataset({ ...dataset, data: newData, headers, columns: headers.length, rows: newData.length, columnInfo });
-        setTransformations((prev) => [...prev, transformation]);
-    }, [dataset]);
+
+            setDataset(resilientInfo);
+            setDatasetId(actualId);
+            setOriginalData([...(info.data || [])]);
+            setInitialColumnInfo([...(info.columnInfo || [])]);
+            setFileName(file.name);
+            setTransformations([]);
+            setIsHistorySession(false);
+            setCurrentStep(PipelineStep.OVERVIEW);
+        } catch (err: any) {
+            console.error("Upload error details:", err);
+            let errorMsg = "Erreur inconnue lors de l'import.";
+
+            if (err.response?.status === 401 || err.response?.status === 403) {
+                errorMsg = "Votre session a expiré ou est invalide. Veuillez vous RE-CONNECTER (déconnexion puis connexion) pour continuer.";
+            } else if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+                errorMsg = "Le serveur a mis trop de temps à répondre (Timeout). Votre fichier est très gros, le traitement est peut-être toujours en cours côté serveur. Réessayez dans un moment ou avec un fichier plus petit.";
+            } else if (err.response?.status === 413) {
+                errorMsg = "Le fichier est trop volumineux pour le serveur (Limite 100Mo).";
+            } else if (err.response?.data?.message) {
+                errorMsg = err.response.data.message;
+            } else if (err.message) {
+                errorMsg = err.message;
+            }
+
+            alert('IMPORTATION ECHOUEE: ' + errorMsg);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    const applyTransformation = useCallback(async (type: string, params: any, description: string) => {
+        if (!datasetId) return;
+        setIsLoading(true);
+        try {
+            const response = await datasetsApi.process(datasetId, type, params);
+            setDataset(response.data);
+            setTransformations((prev) => [...prev, description]);
+        } catch (err: any) {
+            alert('Erreur: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setIsLoading(false);
+        }
+    }, [datasetId]);
 
     const goToStep = (step: PipelineStepType) => {
         if (isHistorySession) return; // Disable navigation in history mode
@@ -148,156 +207,56 @@ const PreprocessingPipeline: React.FC = () => {
     };
 
     const runAutomation = useCallback(async () => {
-        if (!dataset) return;
+        if (!datasetId) return;
         setIsLoading(true);
         try {
-            let currentData = [...dataset.data];
-            let newTransformations: string[] = [];
-
-            // 1. Duplicates
-            const dupResult = removeDuplicates(currentData);
-            if (dupResult.removed > 0) {
-                currentData = dupResult.cleaned;
-                newTransformations.push(`Autopilot: Suppression de ${dupResult.removed} doublons`);
+            const response = await datasetsApi.autopilot(datasetId);
+            const info = response.data;
+            setDataset(info);
+            if (info.transformations) {
+                setTransformations(prev => [...prev, ...info.transformations]);
             }
-
-            // Helpers for logic (mirroring suggestsMethod etc)
-            const numericCols = dataset.columnInfo.filter(c => c.type === 'numeric').map(c => c.name);
-            const catCols = dataset.columnInfo.filter(c => c.type === 'categorical');
-
-            // 2. Missing Values
-            dataset.columnInfo.filter(c => c.nullCount > 0).forEach(col => {
-                const stats = col.type === 'numeric' ? computeColumnStats(currentData, col.name) : null;
-                const outliers = col.type === 'numeric' ? detectOutliersIQR(currentData, col.name).outlierIndices : [];
-
-                // Mirror MissingValuesStep suggestMethod
-                let method = 'mode';
-                if (col.nullPercentage > 40) method = 'drop';
-                else if (col.type === 'categorical') method = 'mode';
-                else if (stats) {
-                    if (stats.isSymmetric && outliers.length === 0 && col.nullPercentage < 10) method = 'mean';
-                    else method = 'median';
-                }
-
-                switch (method) {
-                    case 'mean': currentData = imputeByMean(currentData, col.name); break;
-                    case 'median': currentData = imputeByMedian(currentData, col.name); break;
-                    case 'mode': currentData = imputeByMode(currentData, col.name); break;
-                    case 'drop': currentData = currentData.filter(r => r[col.name] !== null && r[col.name] !== undefined && r[col.name] !== ''); break;
-                }
-                newTransformations.push(`Autopilot: ${col.name} (Missing) -> ${method.toUpperCase()}`);
-            });
-
-            // 3. Outliers
-            numericCols.forEach(colName => {
-                const stats = computeColumnStats(currentData, colName);
-                if (!stats) return;
-                const outliers = detectOutliersIQR(currentData, colName);
-                if (outliers.outlierIndices.length === 0) return;
-
-                // Rule-based: Winsor if asymmetric, IQR if sym, Z-score if normal
-                if (stats.isNormal) {
-                    currentData = treatOutliersZScore(currentData, colName);
-                    newTransformations.push(`Autopilot: ${colName} (Outliers) -> Z-Score`);
-                } else if (stats.isSymmetric) {
-                    currentData = treatOutliersIQR(currentData, colName);
-                    newTransformations.push(`Autopilot: ${colName} (Outliers) -> IQR`);
-                } else {
-                    currentData = treatOutliersWinsor(currentData, colName);
-                    newTransformations.push(`Autopilot: ${colName} (Outliers) -> Winsorization`);
-                }
-            });
-
-            // 4. Encoding
-            catCols.forEach(col => {
-                const name = col.name.toLowerCase();
-                const targetKey = ['target', 'label', 'outcome', 'y', 'class', 'churn', 'survived', 'price_range'].some(k => name.includes(k));
-
-                if (targetKey) {
-                    currentData = labelEncode(currentData, col.name).data;
-                    newTransformations.push(`Autopilot: ${col.name} (Encoding) -> Label`);
-                } else if (col.uniqueCount > 15) {
-                    // Ordinal fallback for high cardinality
-                    const order = Array.from(new Set(currentData.map(r => String(r[col.name])))).sort();
-                    currentData = ordinalEncode(currentData, col.name, order);
-                    newTransformations.push(`Autopilot: ${col.name} (Encoding) -> Ordinal (Auto-order)`);
-                } else {
-                    currentData = oneHotEncode(currentData, [col.name]).data;
-                    newTransformations.push(`Autopilot: ${col.name} (Encoding) -> OneHot`);
-                }
-            });
-
-            // 5. Scaling
-            numericCols.forEach(colName => {
-                const stats = computeColumnStats(currentData, colName);
-                if (!stats) return;
-                const outliers = detectOutliersIQR(currentData, colName).outlierIndices;
-
-                if (stats.isNormal && outliers.length === 0) {
-                    currentData = standardScale(currentData, [colName]);
-                    newTransformations.push(`Autopilot: ${colName} (Scaling) -> Standard`);
-                } else if (outliers.length > 0) {
-                    currentData = robustScale(currentData, [colName]);
-                    newTransformations.push(`Autopilot: ${colName} (Scaling) -> Robust`);
-                } else {
-                    currentData = minMaxScale(currentData, [colName]);
-                    newTransformations.push(`Autopilot: ${colName} (Scaling) -> MinMax`);
-                }
-            });
-
-            // Final Update
-            const finalHeaders = currentData.length > 0 ? Object.keys(currentData[0]) : dataset.headers;
-            const finalColumnInfo: DataColumn[] = finalHeaders.map(name => {
-                const vals = currentData.map(r => r[name]);
-                const nonNull = vals.filter(v => v !== null && v !== undefined && v !== '');
-                return {
-                    name,
-                    type: (isNaN(Number(nonNull[0])) ? 'categorical' : 'numeric') as "boolean" | "numeric" | "categorical" | "datetime" | "unknown",
-                    nullCount: vals.length - nonNull.length,
-                    nullPercentage: ((vals.length - nonNull.length) / currentData.length) * 100,
-                    uniqueCount: new Set(nonNull.map(String)).size,
-                    sampleValues: nonNull.slice(0, 5),
-                };
-            });
-
-            setDataset({
-                ...dataset,
-                data: currentData,
-                headers: finalHeaders,
-                columns: finalHeaders.length,
-                rows: currentData.length,
-                columnInfo: finalColumnInfo
-            });
-            setTransformations(prev => [...prev, ...newTransformations]);
             setCurrentStep(PipelineStep.DASHBOARD);
-        } catch (err) {
-            alert('Automation Erreur: ' + (err as Error).message);
+        } catch (err: any) {
+            alert('Automation Erreur: ' + (err.response?.data?.message || err.message));
         } finally {
             setIsLoading(false);
         }
-    }, [dataset]);
+    }, [datasetId]);
 
-    const handleSaveAndExport = (format: 'csv' | 'xlsx' | 'json' | 'xml' = 'csv') => {
-        if (!dataset) return;
-        const session: PreprocessingSession = {
-            id: crypto.randomUUID(),
-            fileName,
-            date: new Date().toISOString(),
-            rowCount: dataset.rows,
-            columnCount: dataset.columns,
-            transformations,
-            data: dataset.data,
-        };
-        saveSession(session, isAuthenticated);
+    const handleSaveAndExport = async (format: 'csv' | 'xlsx' | 'json' | 'xml' = 'csv') => {
+        if (!dataset || !datasetId) return;
 
-        const baseName = fileName.replace(/\.[^/.]+$/, "");
-        const exportName = `preprocessed_${baseName}`;
+        setIsLoading(true);
+        try {
+            await sessionsApi.create({
+                filename: fileName,
+                dataset_id: datasetId,
+                rowCount: dataset.rows,
+                columnCount: dataset.columns,
+                pipeline: transformations
+            });
 
-        switch (format) {
-            case 'xlsx': exportToExcel(dataset.data, exportName); break;
-            case 'json': exportToJSON(dataset.data, exportName); break;
-            case 'xml': exportToXML(dataset.data, exportName); break;
-            default: exportToCSV(dataset.data, exportName);
+            // Export handling - call backend
+            const response = await datasetsApi.export(datasetId, format);
+            const blob = new Blob([response.data], {
+                type: response.headers['content-type']
+            });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            const baseName = fileName.replace(/\.[^/.]+$/, "");
+            link.setAttribute('download', `preprocessed_${baseName}.${format}`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+            alert("Session sauvegardée et fichier exporté avec succès!");
+        } catch (err: any) {
+            alert("Erreur lors de la sauvegarde ou de l'export: " + (err.response?.data?.message || err.message));
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -421,25 +380,25 @@ const PreprocessingPipeline: React.FC = () => {
                             <AutoPilotStep onManual={nextStep} onAuto={runAutomation} />
                         )}
                         {currentStep === PipelineStep.DUPLICATES && dataset && (
-                            <DuplicatesStep dataset={dataset} onUpdate={updateDataset} onNext={nextStep} />
+                            <DuplicatesStep dataset={dataset} onApply={applyTransformation} onNext={nextStep} />
                         )}
                         {currentStep === PipelineStep.MISSING && dataset && (
-                            <MissingValuesStep dataset={dataset} onUpdate={updateDataset} onNext={nextStep} />
+                            <MissingValuesStep dataset={dataset} onApply={applyTransformation} onNext={nextStep} />
                         )}
                         {currentStep === PipelineStep.OUTLIERS && dataset && (
-                            <OutliersStep dataset={dataset} onUpdate={updateDataset} onNext={nextStep} />
+                            <OutliersStep dataset={dataset} onApply={applyTransformation} onNext={nextStep} />
                         )}
                         {currentStep === PipelineStep.ENCODING && dataset && (
-                            <EncodingStep dataset={dataset} onUpdate={updateDataset} onNext={nextStep} />
+                            <EncodingStep dataset={dataset} onApply={applyTransformation} onNext={nextStep} />
                         )}
                         {currentStep === PipelineStep.SCALING && dataset && (
-                            <ScalingStep dataset={dataset} onUpdate={updateDataset} onNext={nextStep} />
+                            <ScalingStep dataset={dataset} onApply={applyTransformation} onNext={nextStep} />
                         )}
                         {currentStep === PipelineStep.SELECTION && dataset && (
-                            <SelectionStep dataset={dataset} onUpdate={updateDataset} onNext={nextStep} />
+                            <SelectionStep dataset={dataset} onApply={applyTransformation} onNext={nextStep} />
                         )}
                         {currentStep === PipelineStep.DASHBOARD && dataset && (
-                            <DashboardView dataset={dataset} originalData={originalData} transformations={transformations} onExport={handleSaveAndExport} />
+                            <DashboardView dataset={dataset} originalData={originalData} initialColumnInfo={initialColumnInfo} transformations={transformations} onExport={handleSaveAndExport} />
                         )}
                     </motion.div>
                 </AnimatePresence>
@@ -555,14 +514,7 @@ const UploadStep: React.FC<{ onUpload: (f: File) => void; isLoading: boolean }> 
 };
 
 // Overview Step
-const OverviewStep: React.FC<{ dataset: DatasetInfo; onNext: () => void }> = ({ dataset, onNext }) => {
-    const stats = useMemo(() => {
-        return dataset.columnInfo.map((col) => ({
-            ...col,
-            stats: col.type === 'numeric' ? computeColumnStats(dataset.data, col.name) : null,
-        }));
-    }, [dataset]);
-
+const OverviewStep: React.FC<{ dataset: any; onNext: () => void }> = ({ dataset, onNext }) => {
     return (
         <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6">
@@ -573,8 +525,8 @@ const OverviewStep: React.FC<{ dataset: DatasetInfo; onNext: () => void }> = ({ 
                     {[
                         { label: 'Lignes', value: dataset.rows.toLocaleString(), color: 'bg-blue-100 text-blue-600' },
                         { label: 'Colonnes', value: dataset.columns, color: 'bg-navy-100 text-navy' },
-                        { label: 'Numeriques', value: dataset.columnInfo.filter((c) => c.type === 'numeric').length, color: 'bg-blue-50 text-blue-700' },
-                        { label: 'Categoriques', value: dataset.columnInfo.filter((c) => c.type === 'categorical').length, color: 'bg-primary-100 text-primary-600' },
+                        { label: 'Numeriques', value: (dataset.columnInfo || []).filter((c: any) => c.type === 'numeric').length, color: 'bg-blue-50 text-blue-700' },
+                        { label: 'Categoriques', value: (dataset.columnInfo || []).filter((c: any) => c.type === 'categorical').length, color: 'bg-primary-100 text-primary-600' },
                     ].map(({ label, value, color }) => (
                         <div key={label} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
                             <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center mb-2`}>
@@ -600,7 +552,7 @@ const OverviewStep: React.FC<{ dataset: DatasetInfo; onNext: () => void }> = ({ 
                             </tr>
                         </thead>
                         <tbody>
-                            {stats.map((col, i) => (
+                            {(dataset.columnInfo || []).map((col: any, i: number) => (
                                 <tr key={col.name} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
                                     <td className="p-3 font-medium text-navy-800">{col.name}</td>
                                     <td className="p-3">
@@ -615,8 +567,8 @@ const OverviewStep: React.FC<{ dataset: DatasetInfo; onNext: () => void }> = ({ 
                                         </span>
                                     </td>
                                     <td className="p-3 text-center">{col.uniqueCount}</td>
-                                    <td className="p-3 text-right text-gray-600">
-                                        {col.stats ? col.stats.mean.toFixed(2) : String(col.sampleValues[0] ?? '-')}
+                                    <td className="p-3 text-right text-gray-600 font-mono text-[10px]">
+                                        {String(col.sampleValues?.[0] ?? '-')}
                                     </td>
                                 </tr>
                             ))}
@@ -632,16 +584,16 @@ const OverviewStep: React.FC<{ dataset: DatasetInfo; onNext: () => void }> = ({ 
                     <table className="w-full text-xs">
                         <thead>
                             <tr className="bg-primary-50">
-                                {dataset.headers.slice(0, 10).map((h) => (
+                                {(dataset.headers || []).slice(0, 10).map((h: string) => (
                                     <th key={h} className="p-2 text-left font-semibold text-primary-700 whitespace-nowrap">{h}</th>
                                 ))}
                                 {dataset.headers.length > 10 && <th className="p-2 text-gray-400">...</th>}
                             </tr>
                         </thead>
                         <tbody>
-                            {dataset.data.slice(0, 8).map((row, i) => (
+                            {(dataset.data || []).slice(0, 8).map((row: any, i: number) => (
                                 <tr key={i} className={i % 2 === 0 ? '' : 'bg-gray-50/50'}>
-                                    {dataset.headers.slice(0, 10).map((h) => (
+                                    {(dataset.headers || []).slice(0, 10).map((h: string) => (
                                         <td key={h} className={`p-2 whitespace-nowrap ${row[h] === null || row[h] === undefined || row[h] === '' ? 'text-primary/60 italic' : ''}`}>
                                             {row[h] === null || row[h] === undefined || row[h] === '' ? 'NaN' : String(row[h]).substring(0, 30)}
                                         </td>
@@ -716,19 +668,12 @@ const AutoPilotStep: React.FC<{ onManual: () => void; onAuto: () => void }> = ({
 };
 
 // Duplicates Step
-const DuplicatesStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t: string) => void; onNext: () => void }> = ({ dataset, onUpdate, onNext }) => {
-    const [result, setResult] = useState<{ cleaned: DataRow[]; removed: number } | null>(null);
+const DuplicatesStep: React.FC<{ dataset: any; onApply: (t: string, p: any, d: string) => Promise<void>; onNext: () => void }> = ({ dataset, onApply, onNext }) => {
+    const [detectClicked, setDetectClicked] = useState(false);
 
-    const handleDetect = () => {
-        const r = removeDuplicates(dataset.data);
-        setResult(r);
-    };
-
-    const handleApply = () => {
-        if (result) {
-            onUpdate(result.cleaned, `Suppression de ${result.removed} doublons`);
-            setResult(null);
-        }
+    const handleApply = async () => {
+        await onApply('remove_duplicates', {}, 'Suppression des doublons');
+        setDetectClicked(true);
     };
 
     return (
@@ -736,33 +681,24 @@ const DuplicatesStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], 
             <h3 className="text-xl font-bold text-navy">Suppression des doublons</h3>
             <p className="text-gray-600">Identifiez et supprimez les lignes identiques pour eviter les biais dans votre analyse.</p>
 
-            {!result ? (
-                <button onClick={handleDetect} className="btn-primary rounded-xl gap-2">
-                    <Search className="h-5 w-5" /> Detecter les doublons
+            {!detectClicked ? (
+                <button onClick={handleApply} className="btn-primary rounded-xl gap-2">
+                    <Trash2 className="h-5 w-5" /> Supprimer les doublons
                 </button>
             ) : (
                 <div className="space-y-4">
-                    <div className={`rounded-xl p-4 border ${result.removed > 0 ? 'bg-primary-50 border-primary-200' : 'bg-blue-50 border-blue-200'}`}>
+                    <div className="rounded-xl p-4 border bg-blue-50 border-blue-200">
                         <div className="flex items-center gap-3">
-                            {result.removed > 0 ? <AlertTriangle className="h-6 w-6 text-primary" /> : <CheckCircle className="h-6 w-6 text-blue-600" />}
+                            <CheckCircle className="h-6 w-6 text-blue-600" />
                             <div>
-                                <p className={`font-bold ${result.removed > 0 ? 'text-primary' : 'text-blue-800'}`}>
-                                    {result.removed > 0 ? `${result.removed} doublons supprimes.` : 'Aucun doublon detecte.'}
-                                </p>
-                                <p className="text-sm text-gray-600">{result.cleaned.length} lignes uniques sur {dataset.rows}</p>
+                                <p className="font-bold text-blue-800">Doublons supprimés.</p>
+                                <p className="text-sm text-gray-600">{dataset.rows} lignes restantes.</p>
                             </div>
                         </div>
                     </div>
-                    <div className="flex gap-3">
-                        {result.removed > 0 && (
-                            <button onClick={handleApply} className="btn-primary rounded-xl gap-2">
-                                <Trash2 className="h-5 w-5" /> Supprimer les doublons
-                            </button>
-                        )}
-                        <button onClick={onNext} className="btn-outline rounded-xl gap-2">
-                            {result.removed === 0 ? 'Continuer' : 'Passer'} <ChevronRight className="h-5 w-5" />
-                        </button>
-                    </div>
+                    <button onClick={onNext} className="btn-outline rounded-xl gap-2">
+                        Continuer <ChevronRight className="h-5 w-5" />
+                    </button>
                 </div>
             )}
         </div>
@@ -770,72 +706,23 @@ const DuplicatesStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], 
 };
 
 // Missing Values Step
-const MissingValuesStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t: string) => void; onNext: () => void }> = ({ dataset, onUpdate, onNext }) => {
-    const columnsWithNaN = useMemo(() =>
-        dataset.columnInfo.filter((c) => c.nullCount > 0).map((c) => {
-            const stats = c.type === 'numeric' ? computeColumnStats(dataset.data, c.name) : null;
-            const outliers = c.name && c.type === 'numeric' ? detectOutliersIQR(dataset.data, c.name).outlierIndices : [];
-            return { ...c, stats, outlierCount: outliers.length };
-        }),
-        [dataset]
-    );
-
+const MissingValuesStep: React.FC<{ dataset: any; onApply: (t: string, p: any, d: string) => Promise<void>; onNext: () => void }> = ({ dataset, onApply, onNext }) => {
+    const columnsWithNaN = useMemo(() => dataset.columnInfo.filter((c: any) => c.nullCount > 0), [dataset]);
     const [selectedMethods, setSelectedMethods] = useState<Record<string, string>>({});
-    const [constants, setConstants] = useState<Record<string, string>>({});
     const [treatedColumns, setTreatedColumns] = useState<Set<string>>(new Set());
-    const [lastAction, setLastAction] = useState<string | null>(null);
 
-    const suggestMethod = (col: typeof columnsWithNaN[0]): { method: string; reason: string } => {
-        if (col.nullPercentage > 40) return { method: 'drop', reason: 'Plus de 40% de données manquantes (Perte d\'information critique)' };
-        if (col.type === 'categorical') return { method: 'mode', reason: 'Variable qualitative (Type catégorique)' };
-        if (col.stats) {
-            if (col.stats.isSymmetric && col.outlierCount === 0 && col.nullPercentage < 10) {
-                return { method: 'mean', reason: 'Distribution symétrique et sans valeurs aberrantes' };
-            }
-            if (!col.stats.isSymmetric || col.outlierCount > 0) {
-                return { method: 'median', reason: 'Distribution asymétrique ou présence d\'outliers' };
-            }
-            return { method: 'median', reason: 'Recommandé pour préserver la structure statistique' };
-        }
-        return { method: 'mode', reason: 'Méthode par défaut pour ce type de données' };
+    const handleApply = async (colName: string) => {
+        const method = selectedMethods[colName] || 'mode'; // Simplified fallback
+        await onApply(`impute_${method}`, { column: colName }, `${colName}: imputation par ${method.toUpperCase()}`);
+        setTreatedColumns(prev => new Set(prev).add(colName));
     };
 
     const methods = [
-        { value: 'mean', label: 'Moyenne', desc: 'Suggéré si distribution symétrique et sans outliers' },
-        { value: 'median', label: 'Médiane', desc: 'Suggéré si distribution asymétrique ou outliers' },
-        { value: 'mode', label: 'Mode', desc: 'Suggéré pour les variables qualitatives' },
-        { value: 'constant', label: 'Constante', desc: 'Zéro, "Absent" ou valeur personnalisée' },
-        { value: 'ffill', label: 'Forward Fill', desc: 'Suggéré pour les séries temporelles' },
-        { value: 'bfill', label: 'Backward Fill', desc: 'Suggéré pour les séries temporelles' },
-        { value: 'interpolation', label: 'Interpolation', desc: 'Séries temporelles (linéaire)' },
-        { value: 'knn', label: 'KNN Imputer', desc: 'Suggéré si colonnes corrélées et NaN < 30%' },
-        { value: 'drop', label: 'Suppression', desc: 'Dernier recours (> 40% de NaN)' },
+        { value: 'mean', label: 'Moyenne' },
+        { value: 'median', label: 'Médiane' },
+        { value: 'mode', label: 'Mode' },
+        { value: 'drop', label: 'Suppression' },
     ];
-
-    const handleApply = (colName: string) => {
-        const col = columnsWithNaN.find((c) => c.name === colName)!;
-        const method = selectedMethods[colName] || suggestMethod(col).method;
-        let newData = dataset.data;
-        const numericCols = dataset.columnInfo.filter((c) => c.type === 'numeric').map((c) => c.name);
-
-        switch (method) {
-            case 'mean': newData = imputeByMean(newData, colName); break;
-            case 'median': newData = imputeByMedian(newData, colName); break;
-            case 'mode': newData = imputeByMode(newData, colName); break;
-            case 'constant': newData = imputeByConstant(newData, colName, constants[colName] || 0); break;
-            case 'ffill': newData = imputeByFFill(newData, colName); break;
-            case 'bfill': newData = imputeBFill(newData, colName); break;
-            case 'interpolation': newData = imputeByInterpolation(newData, colName); break;
-            case 'knn': newData = imputeKNN(newData, colName, numericCols); break;
-            case 'drop':
-                newData = newData.filter((row) => row[colName] !== null && row[colName] !== undefined && row[colName] !== '');
-                break;
-        }
-        onUpdate(newData, `${colName}: imputation par ${method.toUpperCase()}`);
-        setTreatedColumns(prev => new Set(prev).add(colName));
-        setLastAction(`Imputation ${method.toUpperCase()} appliquée sur ${colName}`);
-        setTimeout(() => setLastAction(null), 3000);
-    };
 
     if (columnsWithNaN.length === 0) {
         return (
@@ -855,289 +742,108 @@ const MissingValuesStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[
     return (
         <div className="bg-white rounded-2xl shadow-sm p-6 space-y-6">
             <h3 className="text-xl font-bold text-navy">Traitement des valeurs manquantes</h3>
-            <div className="bg-primary-50 border border-primary-200 rounded-xl p-4 flex items-start gap-3 text-sm">
-                <AlertTriangle className="h-6 w-6 text-primary mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                    <p className="text-primary-800">Sélectionnez la méthode de traitement pour chaque colonne ayant des valeurs manquantes.</p>
-                </div>
-                <AnimatePresence>
-                    {lastAction && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            className="bg-navy text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2"
-                        >
-                            <CheckCircle className="h-3.5 w-3.5 text-blue-300" />
-                            {lastAction}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
-
             <div className="space-y-4">
-                {columnsWithNaN.map((col) => {
-                    const suggested = suggestMethod(col);
-                    const current = selectedMethods[col.name] || suggested;
+                {columnsWithNaN.map((col: any) => {
+                    const current = selectedMethods[col.name] || 'mode';
                     return (
                         <div key={col.name} className="border border-gray-100 rounded-xl p-4">
                             <div className="flex items-center justify-between mb-3">
-                                <div>
-                                    <span className="font-semibold text-navy">{col.name}</span>
-                                    <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${col.type === 'numeric' ? 'bg-blue-100 text-blue-700' : 'bg-primary-50 text-primary-700'}`}>
-                                        {col.type}
-                                    </span>
-                                </div>
-                                <span className={`text-sm font-medium ${treatedColumns.has(col.name) ? 'text-blue-600' : col.nullPercentage > 30 ? 'text-primary' : 'text-blue-600'}`}>
+                                <span className="font-semibold text-navy">{col.name}</span>
+                                <span className="text-sm font-medium text-primary">
                                     {treatedColumns.has(col.name) ? 0 : col.nullCount} ({treatedColumns.has(col.name) ? '0.0' : col.nullPercentage.toFixed(1)}%)
                                 </span>
                             </div>
-
                             <div className="flex flex-wrap gap-2 mb-3">
                                 {methods.map((m) => (
                                     <button
                                         key={m.value}
-                                        onClick={() => setSelectedMethods((prev: any) => ({ ...prev, [col.name]: m.value }))}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${current === m.value ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} ${m.value === suggested.method ? 'ring-2 ring-primary/30 border-primary/50' : ''}`}
-                                        title={m.desc}
+                                        onClick={() => setSelectedMethods((prev) => ({ ...prev, [col.name]: m.value }))}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${current === m.value ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                                     >
                                         {m.label}
-                                        {m.value === suggested.method && <span className="ml-1 text-[10px] opacity-75">(suggéré)</span>}
                                     </button>
                                 ))}
                             </div>
-
-                            {current === suggested.method && (
-                                <div className="text-[11px] text-primary-600 font-medium mb-3 bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 w-fit flex items-center gap-2">
-                                    <TrendingUp className="h-3.5 w-3.5" />
-                                    {suggested.reason}
-                                </div>
-                            )}
-
-                            {current === 'constant' && (
-                                <input
-                                    type="text"
-                                    value={constants[col.name] || ''}
-                                    onChange={(e) => setConstants((prev) => ({ ...prev, [col.name]: e.target.value }))}
-                                    className="w-full max-w-xs px-3 py-2 rounded-lg border border-gray-200 text-sm mb-3"
-                                    placeholder="Valeur de remplacement"
-                                />
-                            )}
-
                             {treatedColumns.has(col.name) ? (
-                                <div className="text-sm text-primary font-bold flex items-center gap-2 mt-2 bg-blue-50/50 p-2 rounded-lg border border-blue-100 w-fit">
-                                    <CheckCircle className="h-4 w-4" /> Colonne nettoyée avec succès
-                                </div>
+                                <div className="text-sm text-primary font-bold">Nettoyée ✓</div>
                             ) : (
-                                <button
-                                    onClick={() => handleApply(col.name)}
-                                    className="btn-primary rounded-lg text-sm py-2 px-4 gap-2 transition-all"
-                                >
-                                    Appliquer
-                                </button>
+                                <button onClick={() => handleApply(col.name)} className="btn-primary rounded-lg text-sm transition-all">Appliquer</button>
                             )}
                         </div>
                     );
                 })}
             </div>
-
-            <div className="flex justify-end">
-                <button onClick={onNext} className="btn-outline rounded-xl gap-2">
-                    Continuer <ChevronRight className="h-5 w-5" />
-                </button>
+            <div className="flex justify-end pt-4">
+                <button onClick={onNext} className="btn-outline rounded-xl gap-2">Continuer <ChevronRight className="h-5 w-5" /></button>
             </div>
         </div>
     );
 };
 
 // Outliers Step
-const OutliersStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t: string) => void; onNext: () => void }> = ({ dataset, onUpdate, onNext }) => {
-    const numericCols = useMemo(() => dataset.columnInfo.filter((c) => c.type === 'numeric'), [dataset]);
+const OutliersStep: React.FC<{ dataset: any; onApply: (t: string, p: any, d: string) => Promise<void>; onNext: () => void }> = ({ dataset, onApply, onNext }) => {
+    const numericCols = useMemo(() => dataset.columnInfo.filter((c: any) => c.type === 'numeric'), [dataset]);
     const [selectedMethods, setSelectedMethods] = useState<Record<string, string>>({});
     const [treatedColumns, setTreatedColumns] = useState<Set<string>>(new Set());
-    const [lastAction, setLastAction] = useState<string | null>(null);
 
-    const handleApply = (colName: string) => {
+    const handleApply = async (colName: string) => {
         const method = selectedMethods[colName] || 'iqr';
-        let newData = dataset.data;
-        switch (method) {
-            case 'iqr': newData = treatOutliersIQR(newData, colName); break;
-            case 'winsor': newData = treatOutliersWinsor(newData, colName, 5, 95); break;
-            case 'zscore': newData = treatOutliersZScore(newData, colName); break;
-        }
-        onUpdate(newData, `${colName}: outliers traités par ${method.toUpperCase()}`);
+        // Note: backend needs to support these types
+        await onApply(`treat_outliers_${method}`, { column: colName }, `${colName}: outliers traités par ${method.toUpperCase()}`);
         setTreatedColumns(prev => new Set(prev).add(colName));
-        setLastAction(`Traitement ${method.toUpperCase()} appliqué sur ${colName}`);
-        setTimeout(() => setLastAction(null), 3000);
     };
 
     const outlierMethods = [
-        { value: 'iqr', label: 'IQR (Boxplot)', desc: 'Remplacer par bornes (Q1-1.5IQR, Q3+1.5IQR)' },
-        { value: 'winsor', label: 'Winsorisation', desc: 'Remplacer par percentiles (5% et 95%)' },
-        { value: 'zscore', label: 'Z-score', desc: 'Remplacer par moyenne (Normal) ou médiane (Quasi-normal)' },
+        { value: 'iqr', label: 'IQR (Boxplot)' },
+        { value: 'zscore', label: 'Z-score' },
     ];
-
-    const suggestOutlierMethod = (stats: any): { method: string; reason: string } => {
-        if (!stats) return { method: 'iqr', reason: 'Méthode par défaut' };
-        if (stats.isNormal) return { method: 'zscore', reason: 'Distribution normale : Z-score est recommandé' };
-        if (stats.isSymmetric) return { method: 'iqr', reason: 'Distribution symétrique : IQR (Boxplot) est idéal' };
-        return { method: 'winsor', reason: 'Distribution asymétrique : Winsorisation recommandée' };
-    };
 
     return (
         <div className="bg-white rounded-2xl shadow-sm p-6 space-y-6">
             <h3 className="text-xl font-bold text-navy">Traitement des valeurs aberrantes</h3>
-            <div className="bg-primary-50 border border-primary-200 rounded-xl p-4 flex items-start gap-3 text-sm">
-                <AlertTriangle className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                    <p className="text-primary-800">Comprendre le contexte métier avant de supprimer un outlier. Un traitement inadapté peut affecter les résultats.</p>
-                </div>
-                <AnimatePresence>
-                    {lastAction && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            className="bg-navy text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2"
-                        >
-                            <CheckCircle className="h-3.5 w-3.5 text-blue-300" />
-                            {lastAction}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
-
             <div className="space-y-4">
-                {numericCols.map((col) => {
-                    const stats = computeColumnStats(dataset.data, col.name);
-                    const { outlierIndices } = detectOutliersIQR(dataset.data, col.name);
-                    const suggested = suggestOutlierMethod(stats);
-                    const currentMethod = selectedMethods[col.name] || suggested.method;
-
+                {numericCols.map((col: any) => {
+                    const currentMethod = selectedMethods[col.name] || 'iqr';
                     return (
                         <div key={col.name} className="border border-gray-100 rounded-xl p-4">
                             <div className="flex items-center justify-between mb-3">
                                 <span className="font-semibold text-navy">{col.name}</span>
-                                <span className={`text-sm font-medium ${treatedColumns.has(col.name) ? 'text-blue-600' : outlierIndices.length > 0 ? 'text-primary' : 'text-blue-600'}`}>
-                                    {treatedColumns.has(col.name) ? 0 : outlierIndices.length} outliers detectes
-                                </span>
                             </div>
-
-                            {stats && (
-                                <div className="grid grid-cols-4 gap-2 mb-3 text-xs">
-                                    <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-500">Min:</span> <span className="font-medium">{stats.min.toFixed(2)}</span></div>
-                                    <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-500">Q1:</span> <span className="font-medium">{stats.q1.toFixed(2)}</span></div>
-                                    <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-500">Q3:</span> <span className="font-medium">{stats.q3.toFixed(2)}</span></div>
-                                    <div className="bg-gray-50 rounded-lg p-2"><span className="text-gray-500">Max:</span> <span className="font-medium">{stats.max.toFixed(2)}</span></div>
-                                </div>
-                            )}
-
                             <div className="flex flex-wrap gap-2 mb-3">
                                 {outlierMethods.map((m) => (
                                     <button
                                         key={m.value}
                                         onClick={() => setSelectedMethods((prev) => ({ ...prev, [col.name]: m.value }))}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${currentMethod === m.value ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} ${m.value === suggested.method ? 'ring-2 ring-primary/30 border-primary/50' : ''}`}
-                                        title={m.desc}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${currentMethod === m.value ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                                     >
                                         {m.label}
-                                        {m.value === suggested.method && <span className="ml-1 text-[10px] opacity-75">(suggéré)</span>}
                                     </button>
                                 ))}
                             </div>
-
-                            {currentMethod === suggested.method && (
-                                <div className="text-[11px] text-primary-600 font-medium mb-3 bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 w-fit flex items-center gap-2">
-                                    <TrendingUp className="h-3.5 w-3.5" />
-                                    {suggested.reason}
-                                </div>
-                            )}
-
                             {treatedColumns.has(col.name) ? (
-                                <div className="text-sm text-primary font-bold flex items-center gap-2 mt-2 bg-blue-50/50 p-2 rounded-lg border border-blue-100 w-fit">
-                                    <CheckCircle className="h-4 w-4" /> Colonne nettoyée avec succès
-                                </div>
-                            ) : outlierIndices.length > 0 && (
-                                <button
-                                    onClick={() => handleApply(col.name)}
-                                    className="btn-primary rounded-lg text-sm py-2 px-4 gap-2 transition-all"
-                                >
-                                    Appliquer le traitement
-                                </button>
+                                <div className="text-sm text-primary font-bold">Traitée ✓</div>
+                            ) : (
+                                <button onClick={() => handleApply(col.name)} className="btn-primary rounded-lg text-sm transition-all">Appliquer</button>
                             )}
                         </div>
                     );
                 })}
             </div>
-
-            <div className="flex justify-end">
-                <button onClick={onNext} className="btn-outline rounded-xl gap-2">
-                    Continuer <ChevronRight className="h-5 w-5" />
-                </button>
+            <div className="flex justify-end pt-4">
+                <button onClick={onNext} className="btn-outline rounded-xl gap-2">Continuer <ChevronRight className="h-5 w-5" /></button>
             </div>
         </div>
     );
 };
 
 // Encoding Step
-const EncodingStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t: string) => void; onNext: () => void }> = ({ dataset, onUpdate, onNext }) => {
-    const catCols = useMemo(() => dataset.columnInfo.filter((c) => c.type === 'categorical'), [dataset]);
-    const [colTypes, setColTypes] = useState<Record<string, 'nominal' | 'ordinal' | 'target'>>({});
-    const [ordinalOrders, setOrdinalOrders] = useState<Record<string, string>>({});
+const EncodingStep: React.FC<{ dataset: any; onApply: (t: string, p: any, d: string) => Promise<void>; onNext: () => void }> = ({ dataset, onApply, onNext }) => {
+    const catCols = useMemo(() => dataset.columnInfo.filter((c: any) => c.type === 'categorical'), [dataset]);
     const [treatedColumns, setTreatedColumns] = useState<Set<string>>(new Set());
-    const [lastAction, setLastAction] = useState<string | null>(null);
 
-    const suggestEncoding = (col: typeof catCols[0]): { method: 'nominal' | 'ordinal' | 'target'; reason: string } => {
-        const name = col.name.toLowerCase();
-        const targetKeywords = ['target', 'label', 'outcome', 'y', 'class', 'churn', 'survived', 'price_range', 'satisfaction'];
-
-        if (targetKeywords.some(k => name.includes(k))) {
-            return { method: 'target', reason: 'Détecté comme variable cible (LabelEncoder recommandé)' };
-        }
-
-        const ordinalKeywords = ['level', 'grade', 'rank', 'degree', 'priority', 'size', 'rating', 'tranche'];
-        if (ordinalKeywords.some(k => name.includes(k))) {
-            return { method: 'ordinal', reason: 'Nom suggère une hiérarchie (OrdinalEncoder recommandé)' };
-        }
-
-        if (col.uniqueCount > 15) {
-            return { method: 'ordinal', reason: 'Haute cardinalité : OneHot risque de créer trop de colonnes' };
-        }
-
-        return { method: 'nominal', reason: 'Variable qualitative standard (OneHotEncoder recommandé)' };
-    };
-
-    const handleApply = (colName: string) => {
-        const col = catCols.find(c => c.name === colName)!;
-        const type = colTypes[colName] || suggestEncoding(col).method;
-        let newData = dataset.data;
-        let transformation = '';
-
-        switch (type) {
-            case 'nominal': {
-                const result = oneHotEncode(newData, [colName]);
-                newData = result.data;
-                transformation = `${colName}: OneHotEncoder (${result.newColumns.length} colonnes)`;
-                break;
-            }
-            case 'ordinal': {
-                const order = (ordinalOrders[colName] || '').split(',').map((s) => s.trim()).filter(Boolean);
-                if (order.length === 0) { alert('Definissez l\'ordre des categories'); return; }
-                newData = ordinalEncode(newData, colName, order);
-                transformation = `${colName}: OrdinalEncoder`;
-                break;
-            }
-            case 'target': {
-                const result = labelEncode(newData, colName);
-                newData = result.data;
-                transformation = `${colName}: LabelEncoder`;
-                break;
-            }
-        }
-        onUpdate(newData, transformation);
+    const handleApply = async (colName: string, type: string) => {
+        await onApply(`encode_${type}`, { column: colName }, `${colName}: encodage ${type.toUpperCase()}`);
         setTreatedColumns(prev => new Set(prev).add(colName));
-        setLastAction(`Encodage ${type.toUpperCase()} appliqué sur ${colName}`);
-        setTimeout(() => setLastAction(null), 3000);
     };
 
     if (catCols.length === 0) {
@@ -1155,272 +861,88 @@ const EncodingStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t:
 
     return (
         <div className="bg-white rounded-2xl shadow-sm p-6 space-y-6">
-            <div className="bg-primary-50 border border-primary-200 rounded-xl p-4 flex items-start gap-3 text-sm mb-6">
-                <AlertTriangle className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                    <p className="text-primary-800">Classez chaque variable et appliquez l'encodage approprié.</p>
-                </div>
-                <AnimatePresence>
-                    {lastAction && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            className="bg-navy text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2"
-                        >
-                            <CheckCircle className="h-3.5 w-3.5 text-blue-300" />
-                            {lastAction}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
-
+            <h3 className="text-xl font-bold text-navy">Encodage des variables</h3>
             <div className="space-y-4">
-                {catCols.map((col) => {
-                    const type = colTypes[col.name] || 'nominal';
-                    const currentOrder = (ordinalOrders[col.name] || '').split(',').map(s => s.trim()).filter(Boolean);
-                    const sampleValues = (col.sampleValues || []) as string[];
-                    const remainingCats = sampleValues.filter(v => !currentOrder.includes(v));
-
-                    return (
-                        <div key={col.name} className="border border-gray-100 rounded-xl p-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <span className="font-semibold text-navy">{col.name}</span>
-                                <span className="text-sm text-gray-500">{col.uniqueCount} categories</span>
-                            </div>
-
-                            <div className="flex gap-2 mb-3">
-                                {[
-                                    { v: 'nominal', l: 'Nominale (OneHot)', desc: 'Type qualitatif sans ordre particulier' },
-                                    { v: 'ordinal', l: 'Ordinale', desc: 'Type qualitatif avec un ordre logique' },
-                                    { v: 'target', l: 'Cible (Label)', desc: 'Variable à prédire' },
-                                ].map(({ v, l, desc }) => {
-                                    const suggested = suggestEncoding(col);
-                                    return (
-                                        <button
-                                            key={v}
-                                            onClick={() => setColTypes((prev) => ({ ...prev, [col.name]: v as 'nominal' | 'ordinal' | 'target' }))}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${type === v ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} ${v === suggested.method ? 'ring-2 ring-primary/30 border-primary/50' : ''}`}
-                                            title={desc}
-                                        >
-                                            {l}
-                                            {v === suggested.method && <span className="ml-1 text-[10px] opacity-75">(suggéré)</span>}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            {type === (suggestEncoding(col).method) && (
-                                <div className="text-[11px] text-primary-600 font-medium mb-3 bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 w-fit flex items-center gap-2">
-                                    <TrendingUp className="h-3.5 w-3.5" />
-                                    {suggestEncoding(col).reason}
-                                </div>
-                            )}
-
-                            {type === 'ordinal' && (
-                                <div className="mb-4 p-3 bg-gray-50 rounded-xl border border-gray-200">
-                                    <p className="text-xs font-bold text-navy mb-2">Définir l'ordre (cliquez pour ajouter) :</p>
-                                    <div className="flex flex-wrap gap-2 mb-2">
-                                        {currentOrder.map((cat: string, idx: number) => (
-                                            <button
-                                                key={cat}
-                                                onClick={() => setOrdinalOrders(prev => ({
-                                                    ...prev,
-                                                    [col.name]: currentOrder.filter((c: string) => c !== cat).join(',')
-                                                }))}
-                                                className="bg-primary text-white px-2 py-1 rounded text-[10px] flex items-center gap-1"
-                                            >
-                                                {idx + 1}. {cat} <X className="h-3 w-3" />
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {remainingCats.map((cat: string) => (
-                                            <button
-                                                key={cat}
-                                                onClick={() => setOrdinalOrders(prev => ({
-                                                    ...prev,
-                                                    [col.name]: [...currentOrder, cat].join(',')
-                                                }))}
-                                                className="bg-white border border-gray-200 text-gray-600 px-2 py-1 rounded text-[10px] hover:border-primary hover:text-primary"
-                                            >
-                                                + {cat}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    {col.uniqueCount > col.sampleValues.length && (
-                                        <p className="text-[10px] text-gray-400 mt-2 italic">* Seules les premières catégories sont affichées</p>
-                                    )}
-                                </div>
-                            )}
-
-                            <div className="text-[10px] text-gray-500 mb-2 truncate">Valeurs: {col.sampleValues.join(', ')}</div>
-
-                            {treatedColumns.has(col.name) ? (
-                                <div className="text-sm text-primary font-bold flex items-center gap-2 mt-2 bg-blue-50/50 p-2 rounded-lg border border-blue-100 w-fit">
-                                    <CheckCircle className="h-4 w-4" /> Colonne encodée avec succès
-                                </div>
+                {catCols.map((col: any) => (
+                    <div key={col.name} className="border border-gray-100 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3 text-navy font-semibold">{col.name}</div>
+                        <div className="flex gap-2">
+                            {!treatedColumns.has(col.name) ? (
+                                <>
+                                    <button onClick={() => handleApply(col.name, 'onehot')} className="btn-outline text-xs px-3 py-1.5 rounded-lg">OneHot</button>
+                                    <button onClick={() => handleApply(col.name, 'label')} className="btn-outline text-xs px-3 py-1.5 rounded-lg">Label</button>
+                                </>
                             ) : (
-                                <button
-                                    onClick={() => handleApply(col.name)}
-                                    className="btn-primary rounded-lg text-sm py-2 px-4 gap-2 transition-all"
-                                >
-                                    Appliquer l'encodage
-                                </button>
+                                <span className="text-primary font-bold text-sm">Encodée ✓</span>
                             )}
                         </div>
-                    );
-                })}
+                    </div>
+                ))}
             </div>
-
-            <div className="flex justify-end">
+            <div className="flex justify-end pt-4">
                 <button onClick={onNext} className="btn-outline rounded-xl gap-2">Continuer <ChevronRight className="h-5 w-5" /></button>
             </div>
         </div>
     );
 };
 
+
 // Scaling Step
-const ScalingStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t: string) => void; onNext: () => void }> = ({ dataset, onUpdate, onNext }) => {
-    const numericCols = useMemo(() => dataset.columnInfo.filter((c) => c.type === 'numeric'), [dataset]);
-    const [selectedMethods, setSelectedMethods] = useState<Record<string, 'minmax' | 'standard' | 'robust'>>({});
+const ScalingStep: React.FC<{ dataset: any; onApply: (t: string, p: any, d: string) => Promise<void>; onNext: () => void }> = ({ dataset, onApply, onNext }) => {
+    const numericCols = useMemo(() => dataset.columnInfo.filter((c: any) => c.type === 'numeric'), [dataset]);
+    const [selectedMethods, setSelectedMethods] = useState<Record<string, string>>({});
     const [treatedColumns, setTreatedColumns] = useState<Set<string>>(new Set());
-    const [lastAction, setLastAction] = useState<string | null>(null);
 
-    const suggestScaling = (colName: string): { method: 'minmax' | 'standard' | 'robust'; reason: string } => {
-        const stats = computeColumnStats(dataset.data, colName);
-        const outliers = detectOutliersIQR(dataset.data, colName).outlierIndices;
-
-        if (!stats) return { method: 'minmax', reason: 'Méthode par défaut' };
-
-        if (stats.isNormal && outliers.length === 0) {
-            return { method: 'standard', reason: 'Distribution normale et pas d\'outliers (StandardScaler)' };
-        }
-
-        if (outliers.length > 0) {
-            return { method: 'robust', reason: 'Présence d\'outliers détectée (RobustScaler)' };
-        }
-
-        return { method: 'minmax', reason: 'Distribution non-gaussienne sans outliers (MinMaxScaler)' };
-    };
-
-    const handleApply = (colName: string) => {
-        const method = selectedMethods[colName] || suggestScaling(colName).method;
-        let newData = dataset.data;
-        let summary = "";
-
-        switch (method) {
-            case 'minmax': newData = minMaxScale(newData, [colName]); summary = `${colName}: MinMaxScaler`; break;
-            case 'standard': newData = standardScale(newData, [colName]); summary = `${colName}: StandardScaler`; break;
-            case 'robust': newData = robustScale(newData, [colName]); summary = `${colName}: RobustScaler`; break;
-        }
-
-        onUpdate(newData, summary);
+    const handleApply = async (colName: string) => {
+        const method = selectedMethods[colName] || 'minmax';
+        await onApply(`${method}_scale`, { column: colName }, `${colName}: scaling ${method.toUpperCase()}`);
         setTreatedColumns(prev => new Set(prev).add(colName));
-        setLastAction(`Scaling ${method.toUpperCase()} appliqué sur ${colName}`);
-        setTimeout(() => setLastAction(null), 3000);
     };
+
+    const scalingMethods = [
+        { value: 'min_max', label: 'MinMax' },
+        { value: 'standard', label: 'Standard' },
+    ];
 
     return (
         <div className="bg-white rounded-2xl shadow-sm p-6 space-y-6">
-            <h3 className="text-xl font-bold text-navy">Mise à l'échelle (Scaling)</h3>
-
-            <div className="bg-primary-50 border border-primary-200 rounded-xl p-4 flex items-start gap-3 text-sm">
-                <AlertTriangle className="h-5 w-5 text-primary mt-0.5 flex-shrink-0" />
-                <div className="flex-1">
-                    <p className="text-primary-800">Normalisez ou standardisez vos variables pour améliorer la performance des algorithmes sensibles aux échelles.</p>
-                </div>
-                <AnimatePresence>
-                    {lastAction && (
-                        <motion.div
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            className="bg-navy text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2"
-                        >
-                            <CheckCircle className="h-3.5 w-3.5 text-blue-300" />
-                            {lastAction}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
-
+            <h3 className="text-xl font-bold text-navy">Mise à l'échelle</h3>
             <div className="space-y-4">
-                {numericCols.map((col) => {
-                    const stats = computeColumnStats(dataset.data, col.name);
-                    const outliers = col.name ? detectOutliersIQR(dataset.data, col.name).outlierIndices : [];
-                    const suggested = suggestScaling(col.name);
-                    const currentMethod = selectedMethods[col.name] || suggested.method;
-
+                {numericCols.map((col: any) => {
+                    const currentMethod = selectedMethods[col.name] || 'min_max';
                     return (
                         <div key={col.name} className="border border-gray-100 rounded-xl p-4">
-                            <div className="flex items-center justify-between mb-3">
-                                <span className="font-semibold text-navy">{col.name}</span>
-                                <div className="flex gap-2">
-                                    {stats?.isNormal && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">Gaussienne</span>}
-                                    {outliers.length > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold">{outliers.length} Outliers</span>}
-                                </div>
-                            </div>
-
+                            <div className="text-navy font-semibold mb-3">{col.name}</div>
                             <div className="flex flex-wrap gap-2 mb-3">
-                                {[
-                                    { v: 'minmax', l: 'MinMaxScaler', desc: 'Met à l\'échelle entre [0, 1]' },
-                                    { v: 'standard', l: 'StandardScaler', desc: 'Centre sur 0 avec écart-type 1' },
-                                    { v: 'robust', l: 'RobustScaler', desc: 'Moins sensible aux valeurs aberrantes' },
-                                ].map(({ v, l, desc }) => (
+                                {scalingMethods.map((m) => (
                                     <button
-                                        key={v}
-                                        onClick={() => setSelectedMethods((prev) => ({ ...prev, [col.name]: v as 'minmax' | 'standard' | 'robust' }))}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${currentMethod === v ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'} ${v === suggested.method ? 'ring-2 ring-primary/30 border-primary/50' : ''}`}
-                                        title={desc}
+                                        key={m.value}
+                                        onClick={() => setSelectedMethods((prev) => ({ ...prev, [col.name]: m.value }))}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${currentMethod === m.value ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                                     >
-                                        {l}
-                                        {v === suggested.method && <span className="ml-1 text-[10px] opacity-75">(suggéré)</span>}
+                                        {m.label}
                                     </button>
                                 ))}
                             </div>
-
-                            {currentMethod === suggested.method && (
-                                <div className="text-[11px] text-primary-600 font-medium mb-3 bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 w-fit flex items-center gap-2">
-                                    <TrendingUp className="h-3.5 w-3.5" />
-                                    {suggested.reason}
-                                </div>
-                            )}
-
                             {treatedColumns.has(col.name) ? (
-                                <div className="text-sm text-primary font-bold flex items-center gap-2 mt-2 bg-blue-50/50 p-2 rounded-lg border border-blue-100 w-fit">
-                                    <CheckCircle className="h-4 w-4" /> Mise à l'échelle appliquée
-                                </div>
+                                <span className="text-primary font-bold text-sm">Appliqué ✓</span>
                             ) : (
-                                <button
-                                    onClick={() => handleApply(col.name)}
-                                    className="btn-primary rounded-lg text-sm py-2 px-4 gap-2 transition-all"
-                                >
-                                    Appliquer le scaling
-                                </button>
+                                <button onClick={() => handleApply(col.name)} className="btn-primary rounded-lg text-sm transition-all">Appliquer</button>
                             )}
                         </div>
                     );
                 })}
             </div>
-
             <div className="flex justify-end pt-4">
-                <button onClick={onNext} className="btn-outline rounded-xl gap-2">
-                    Continuer <ChevronRight className="h-5 w-5" />
-                </button>
+                <button onClick={onNext} className="btn-outline rounded-xl gap-2">Continuer <ChevronRight className="h-5 w-5" /></button>
             </div>
         </div>
     );
 };
 
 // Selection Step
-const SelectionStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t: string) => void; onNext: () => void }> = ({ dataset, onUpdate, onNext }) => {
+const SelectionStep: React.FC<{ dataset: any; onApply: (t: string, p: any, d: string) => Promise<void>; onNext: () => void }> = ({ dataset, onApply, onNext }) => {
     const [selectedCols, setSelectedCols] = useState<Set<string>>(new Set(dataset.headers));
-    const numericCols = useMemo(() => dataset.columnInfo.filter((c) => c.type === 'numeric').map((c) => c.name), [dataset]);
-    const corrMatrix = useMemo(() => {
-        if (numericCols.length < 2) return null;
-        return correlationMatrix(dataset.data, numericCols);
-    }, [dataset, numericCols]);
 
     const toggleCol = (c: string) => {
         setSelectedCols((prev) => {
@@ -1430,89 +952,36 @@ const SelectionStep: React.FC<{ dataset: DatasetInfo; onUpdate: (d: DataRow[], t
         });
     };
 
-    const handleApply = () => {
+    const handleApply = async () => {
         const cols = Array.from(selectedCols);
-        const newData = dataset.data.map((row) => {
-            const newRow: DataRow = {};
-            cols.forEach((c) => { newRow[c] = row[c]; });
-            return newRow;
-        });
-        onUpdate(newData, `Selection de ${cols.length}/${dataset.headers.length} colonnes`);
+        await onApply('select_columns', { columns: cols }, `Selection de ${cols.length} colonnes`);
     };
 
     return (
         <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm p-6">
                 <h3 className="text-xl font-bold text-navy mb-4">Selection des caracteristiques</h3>
-
-                {/* Correlation matrix */}
-                {corrMatrix && corrMatrix.columns.length > 0 && (
-                    <div className="mb-6">
-                        <h4 className="font-semibold text-navy mb-3">Matrice de correlation</h4>
-                        <div className="overflow-x-auto">
-                            <table className="text-xs">
-                                <thead>
-                                    <tr>
-                                        <th className="p-1" />
-                                        {corrMatrix.columns.map((c) => (
-                                            <th key={c} className="p-1 font-medium text-navy-700 whitespace-nowrap max-w-[60px] truncate" title={c}>{c.substring(0, 8)}</th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {corrMatrix.columns.map((row, i) => (
-                                        <tr key={row}>
-                                            <td className="p-1 font-medium text-navy-700 whitespace-nowrap max-w-[80px] truncate" title={row}>{row.substring(0, 10)}</td>
-                                            {corrMatrix.matrix[i].map((val, j) => {
-                                                const abs = Math.abs(val);
-                                                const bg = val >= 0
-                                                    ? `rgba(59, 130, 246, ${abs * 0.6})`
-                                                    : `rgba(239, 68, 68, ${abs * 0.6})`;
-                                                return (
-                                                    <td key={j} className="p-1 text-center font-medium rounded" style={{ backgroundColor: bg, color: abs > 0.4 ? 'white' : '#374151' }}>
-                                                        {val.toFixed(2)}
-                                                    </td>
-                                                );
-                                            })}
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
-
-                {/* Column selector */}
-                <div>
-                    <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-navy">Colonnes selectionnees ({selectedCols.size}/{dataset.headers.length})</h4>
-                        <div className="flex gap-2">
-                            <button onClick={() => setSelectedCols(new Set(dataset.headers))} className="text-xs text-primary hover:underline">Tout selectionner</button>
-                            <button onClick={() => setSelectedCols(new Set())} className="text-xs text-gray-500 hover:underline">Tout deselectionner</button>
-                        </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        {dataset.headers.map((h) => (
-                            <button
-                                key={h}
-                                onClick={() => toggleCol(h)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedCols.has(h) ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 line-through'}`}
-                            >
-                                {h}
-                            </button>
-                        ))}
-                    </div>
+                <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-navy">Colonnes selectionnees ({selectedCols.size}/{dataset.headers.length})</h4>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {dataset.headers.map((h: string) => (
+                        <button
+                            key={h}
+                            onClick={() => toggleCol(h)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${selectedCols.has(h) ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 line-through'}`}
+                        >
+                            {h}
+                        </button>
+                    ))}
                 </div>
             </div>
-
             <div className="flex gap-3 justify-end">
-                {selectedCols.size < dataset.headers.length && (
-                    <button onClick={handleApply} className="btn-primary rounded-xl gap-2">
-                        <Filter className="h-5 w-5" /> Appliquer la selection
-                    </button>
-                )}
+                <button onClick={handleApply} className="btn-primary rounded-xl gap-2">
+                    <Filter className="h-5 w-5" /> Confirmer la selection
+                </button>
                 <button onClick={onNext} className="btn-outline rounded-xl gap-2">
-                    Voir le Dashboard <BarChart3 className="h-5 w-5" />
+                    Dashboard <BarChart3 className="h-5 w-5" />
                 </button>
             </div>
         </div>

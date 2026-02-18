@@ -17,13 +17,14 @@ const RegisterPage = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
-
-        // Simulate registration delay
-        setTimeout(() => {
-            register(name, email);
+        try {
+            await register(name, email, password);
             setIsSuccess(true);
+        } catch (error) {
+            console.error(error);
+        } finally {
             setIsLoading(false);
-        }, 1000);
+        }
     };
 
     return (
