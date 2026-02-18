@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, BarChart3, TrendingUp, Database, CheckCircle, ArrowDown } from 'lucide-react';
+import { Download, BarChart3, TrendingUp, Database, CheckCircle, ArrowDown, ArrowLeft, ChevronRight } from 'lucide-react';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend,
@@ -23,6 +23,7 @@ const COLORS = ['#3c5fa0', '#5178c0', '#7fa3e0', '#a6c1f0', '#1e3a8a', '#2563eb'
 const DashboardView: React.FC<DashboardViewProps> = ({ dataset, originalData, transformations, onExport }) => {
     const [activeTab, setActiveTab] = useState<'journal' | 'preview' | 'viz'>('journal');
     const [showExportMenu, setShowExportMenu] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
     const numericCols = useMemo(() => dataset.columnInfo.filter((c) => c.type === 'numeric'), [dataset]);
 
     // Distribution data for first few numeric columns
@@ -278,11 +279,34 @@ const DashboardView: React.FC<DashboardViewProps> = ({ dataset, originalData, tr
 
                     {activeTab === 'preview' && (
                         <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100/50">
-                            <h4 className="font-bold text-navy mb-4 flex items-center gap-2">
-                                <Database className="h-5 w-5 text-primary" />
-                                Aperçu des données finales (50 premières lignes)
-                            </h4>
-                            <div className="overflow-x-auto rounded-xl border border-gray-100 scrollbar-thin">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
+                                <h4 className="font-bold text-navy flex items-center gap-2">
+                                    <Database className="h-5 w-5 text-primary" />
+                                    Aperçu des données finales
+                                </h4>
+
+                                <div className="flex items-center gap-2 bg-gray-50 p-1.5 rounded-xl border border-gray-100">
+                                    <button
+                                        onClick={() => setCurrentPage((prev: number) => Math.max(1, prev - 1))}
+                                        disabled={currentPage === 1}
+                                        className="p-2 rounded-lg hover:bg-white hover:shadow-sm disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition-all"
+                                    >
+                                        <ArrowLeft className="h-4 w-4 text-navy" />
+                                    </button>
+                                    <span className="text-xs font-bold text-navy px-4 border-x border-gray-200">
+                                        Page {currentPage} sur {Math.ceil(dataset.data.length / 10)}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage((prev: number) => Math.min(Math.ceil(dataset.data.length / 10), prev + 1))}
+                                        disabled={currentPage >= Math.ceil(dataset.data.length / 10)}
+                                        className="p-2 rounded-lg hover:bg-white hover:shadow-sm disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:shadow-none transition-all"
+                                    >
+                                        <ChevronRight className="h-4 w-4 text-navy" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto rounded-xl border border-gray-100 scrollbar-thin mb-4">
                                 <table className="w-full text-xs text-left">
                                     <thead>
                                         <tr className="bg-navy text-white sticky top-0">
@@ -292,7 +316,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ dataset, originalData, tr
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
-                                        {dataset.data.slice(0, 50).map((row, i) => (
+                                        {dataset.data.slice((currentPage - 1) * 10, currentPage * 10).map((row, i) => (
                                             <tr key={i} className={`hover:bg-blue-50/50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
                                                 {dataset.headers.map((h) => (
                                                     <td key={h} className="p-3 whitespace-nowrap text-navy border-r border-gray-50 max-w-[200px] truncate">{String(row[h] ?? '-')}</td>
@@ -301,6 +325,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ dataset, originalData, tr
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+
+                            <div className="text-right text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                Affichage de {(currentPage - 1) * 10 + 1} à {Math.min(currentPage * 10, dataset.data.length)} sur {dataset.data.length} lignes
                             </div>
                         </div>
                     )}

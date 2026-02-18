@@ -11,6 +11,7 @@ interface AuthContextType {
     isGuest: boolean;
     isAuthenticated: boolean;
     login: (email: string, password: string) => boolean;
+    register: (name: string, email: string) => void;
     logout: () => void;
     startGuestSession: () => void;
 }
@@ -23,29 +24,68 @@ export const useAuth = () => {
     return ctx;
 };
 
+const USERS_KEY = 'dataprep_registered_users';
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isGuest, setIsGuest] = useState(false);
 
     useEffect(() => {
         const stored = localStorage.getItem('dataprep_user');
+        let userFound = false;
         if (stored) {
             try {
-                setUser(JSON.parse(stored));
+                const parsedUser = JSON.parse(stored);
+                setUser(parsedUser);
+                userFound = true;
+                // Ensure guest mode is cleared if user is found
+                setIsGuest(false);
+                sessionStorage.removeItem('dataprep_guest');
             } catch { /* ignore */ }
         }
-        const guestFlag = sessionStorage.getItem('dataprep_guest');
-        if (guestFlag === 'true') {
-            setIsGuest(true);
+
+        if (!userFound) {
+            const guestFlag = sessionStorage.getItem('dataprep_guest');
+            if (guestFlag === 'true') {
+                setIsGuest(true);
+            }
         }
     }, []);
 
+    const register = (name: string, email: string) => {
+        try {
+            const stored = localStorage.getItem(USERS_KEY);
+            const users = stored ? JSON.parse(stored) : [];
+            const filtered = users.filter((u: any) => u.email !== email);
+            localStorage.setItem(USERS_KEY, JSON.stringify([...filtered, { name, email }]));
+        } catch (e) {
+            console.error("Error registering user", e);
+        }
+    };
+
     const login = (email: string, _password: string): boolean => {
-        // Simulation - accept any credentials
+        // Simulation - check registry first
+        let name = '';
+        try {
+            const stored = localStorage.getItem(USERS_KEY);
+            const users = stored ? JSON.parse(stored) : [];
+            const registeredUser = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+            if (registeredUser) {
+                name = registeredUser.name;
+            } else {
+                // Fallback to extraction logic
+                const namePart = email.split(/[@.]/)[0];
+                name = namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
+            }
+        } catch {
+            const namePart = email.split(/[@.]/)[0];
+            name = namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
+        }
+
         const newUser: User = {
             id: crypto.randomUUID(),
             email,
-            name: email.split('@')[0],
+            name: name,
         };
         setUser(newUser);
         setIsGuest(false);
@@ -73,6 +113,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             isGuest,
             isAuthenticated: !!user,
             login,
+            register,
             logout,
             startGuestSession,
         }}>

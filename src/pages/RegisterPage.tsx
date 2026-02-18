@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { Database, Mail, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const RegisterPage = () => {
@@ -10,23 +10,25 @@ const RegisterPage = () => {
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
-    const { login } = useAuth();
-    const navigate = useNavigate();
+    const [isSuccess, setIsSuccess] = useState(false);
+
+    const { register } = useAuth();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
-        // Simulate registration
+
+        // Simulate registration delay
         setTimeout(() => {
-            login(email, name);
-            navigate('/app');
+            register(name, email);
+            setIsSuccess(true);
             setIsLoading(false);
-        }, 1500);
+        }, 1000);
     };
 
     return (
         <div className="min-h-screen flex bg-white font-outfit">
-            {/* Left: Form */}
+            {/* Left: Form or Success Message */}
             <motion.div
                 className="flex-1 flex flex-col justify-center px-8 lg:px-24"
                 initial={{ opacity: 0, x: -20 }}
@@ -41,82 +43,109 @@ const RegisterPage = () => {
                         <span className="text-xl font-bold text-navy">DataPrep <span className="text-primary-500">Pro</span></span>
                     </Link>
 
-                    <h1 className="text-4xl font-bold text-navy mb-3">Créer un compte</h1>
-                    <p className="text-gray-500 mb-10 leading-relaxed">
-                        Rejoignez-nous pour sauvegarder vos pipelines de données et accéder à vos analyses avancées.
-                    </p>
-
-                    <form onSubmit={handleSubmit} className="space-y-5">
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-navy ml-1">Nom complet</label>
-                            <div className="relative">
-                                <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                                <input
-                                    type="text"
-                                    required
-                                    className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                    placeholder="Ex: Babacar Diop"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-navy ml-1">Email professionnel</label>
-                            <div className="relative">
-                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                                <input
-                                    type="email"
-                                    required
-                                    className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                    placeholder="nom@entreprise.com"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-bold text-navy ml-1">Mot de passe</label>
-                            <div className="relative">
-                                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                                <input
-                                    type={showPassword ? "text" : "password"}
-                                    required
-                                    className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-12 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                    placeholder="••••••••"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-navy transition-colors"
+                    <AnimatePresence mode="wait">
+                        {isSuccess ? (
+                            <motion.div
+                                key="success"
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className="text-center"
+                            >
+                                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+                                    <Database className="h-10 w-10 text-green-600" />
+                                </div>
+                                <h2 className="text-3xl font-bold text-navy mb-4">Inscription réussie !</h2>
+                                <p className="text-gray-500 mb-10 leading-relaxed">
+                                    Bienvenue parmi nous, <span className="text-navy font-bold">{name}</span>. Votre compte a été créé avec succès. Vous pouvez maintenant vous connecter pour accéder à l'application.
+                                </p>
+                                <Link
+                                    to="/login"
+                                    className="inline-flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary-600 text-white rounded-2xl py-4 font-bold transition-all shadow-lg shadow-blue-200 group"
                                 >
-                                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                                </button>
-                            </div>
-                        </div>
+                                    Se connecter <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                                </Link>
+                            </motion.div>
+                        ) : (
+                            <motion.div key="form" exit={{ opacity: 0, y: -20 }}>
+                                <h1 className="text-4xl font-bold text-navy mb-3">Créer un compte</h1>
+                                <p className="text-gray-500 mb-10 leading-relaxed">
+                                    Rejoignez-nous pour sauvegarder vos pipelines de données et accéder à vos analyses avancées.
+                                </p>
 
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className={`w-full bg-primary hover:bg-primary-600 text-white rounded-2xl py-4 font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2 group mt-4 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
-                        >
-                            {isLoading ? (
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : (
-                                <>
-                                    S'inscrire <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                                </>
-                            )}
-                        </button>
-                    </form>
+                                <form onSubmit={handleSubmit} className="space-y-5">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-navy ml-1">Nom complet</label>
+                                        <div className="relative">
+                                            <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                                            <input
+                                                type="text"
+                                                required
+                                                className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                placeholder="Ex: Babacar Diop"
+                                                value={name}
+                                                onChange={(e) => setName(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
 
-                    <p className="text-center text-gray-500 mt-8 text-sm font-medium">
-                        Déjà un compte ? <Link to="/login" className="text-primary font-bold hover:underline">Se connecter</Link>
-                    </p>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-navy ml-1">Email professionnel</label>
+                                        <div className="relative">
+                                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                                            <input
+                                                type="email"
+                                                required
+                                                className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                placeholder="nom@entreprise.com"
+                                                value={email}
+                                                onChange={(e) => setEmail(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold text-navy ml-1">Mot de passe</label>
+                                        <div className="relative">
+                                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                                            <input
+                                                type={showPassword ? "text" : "password"}
+                                                required
+                                                className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-12 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                placeholder="••••••••"
+                                                value={password}
+                                                onChange={(e) => setPassword(e.target.value)}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-navy transition-colors"
+                                            >
+                                                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        disabled={isLoading}
+                                        className={`w-full bg-primary hover:bg-primary-600 text-white rounded-2xl py-4 font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2 group mt-4 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                    >
+                                        {isLoading ? (
+                                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                            <>
+                                                S'inscrire <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                                            </>
+                                        )}
+                                    </button>
+                                </form>
+
+                                <p className="text-center text-gray-500 mt-8 text-sm font-medium">
+                                    Déjà un compte ? <Link to="/login" className="text-primary font-bold hover:underline">Se connecter</Link>
+                                </p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </motion.div>
 

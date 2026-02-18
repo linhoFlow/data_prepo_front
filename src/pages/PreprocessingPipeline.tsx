@@ -15,7 +15,7 @@ import {
     correlationMatrix, exportToCSV, exportToExcel, exportToJSON, exportToXML
 } from '../utils/dataProcessor';
 import type { PreprocessingSession } from '../utils/storageService';
-import { saveSession, getSessions } from '../utils/storageService';
+import { saveSession, getSessions, deleteSession, getSessionData } from '../utils/storageService';
 import DashboardView from '../components/dashboard/DashboardView';
 
 // Pipeline steps
@@ -57,6 +57,7 @@ const PreprocessingPipeline: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [fileName, setFileName] = useState('');
     const [showHistory, setShowHistory] = useState(false);
+    const [isHistorySession, setIsHistorySession] = useState(false);
 
     // Ensure guest session is started if not authenticated
     React.useEffect(() => {
@@ -66,7 +67,36 @@ const PreprocessingPipeline: React.FC = () => {
     }, [isAuthenticated, isGuest, startGuestSession]);
 
     // History
-    const history = useMemo(() => getSessions(isAuthenticated), [isAuthenticated, showHistory]);
+    // History refresh trigger
+    const [historyUpdate, setHistoryUpdate] = useState(0);
+    const history = useMemo(() => getSessions(isAuthenticated), [isAuthenticated, showHistory, historyUpdate]);
+
+    const handleDeleteSession = useCallback((id: string) => {
+        deleteSession(id, isAuthenticated);
+        setHistoryUpdate(prev => prev + 1);
+    }, [isAuthenticated]);
+
+    const handleSelectSession = useCallback((session: PreprocessingSession) => {
+        const fullData = getSessionData(session.id, isAuthenticated);
+        if (!fullData) {
+            alert("Erreur: Impossible de charger les données de cette session.");
+            return;
+        }
+
+        setDataset({
+            data: fullData,
+            headers: fullData.length > 0 ? Object.keys(fullData[0]) : [],
+            rows: session.rowCount,
+            columns: session.columnCount,
+            columnInfo: [], // Optional: Recompute if needed
+        });
+        setOriginalData([...fullData]);
+        setFileName(session.fileName);
+        setTransformations(session.transformations);
+        setIsHistorySession(true);
+        setCurrentStep(PipelineStep.DASHBOARD);
+        setShowHistory(false);
+    }, [isAuthenticated]);
 
     const handleFileUpload = useCallback(async (file: File) => {
         setIsLoading(true);
@@ -76,6 +106,7 @@ const PreprocessingPipeline: React.FC = () => {
             setOriginalData([...info.data]);
             setFileName(file.name);
             setTransformations([]);
+            setIsHistorySession(false);
             setCurrentStep(PipelineStep.OVERVIEW);
         } catch (err) {
             alert('Erreur: ' + (err as Error).message);
@@ -104,6 +135,7 @@ const PreprocessingPipeline: React.FC = () => {
     }, [dataset]);
 
     const goToStep = (step: PipelineStepType) => {
+        if (isHistorySession) return; // Disable navigation in history mode
         if (step <= currentStep || (step === currentStep + 1 && dataset)) {
             setCurrentStep(step);
         }
@@ -300,7 +332,7 @@ const PreprocessingPipeline: React.FC = () => {
                                 <span className="text-sm text-gray-600 hidden sm:block">{user?.name}</span>
                             </>
                         )}
-                        {isGuest && (
+                        {isGuest && !isAuthenticated && (
                             <span className="text-xs bg-primary-50 text-primary px-2.5 py-1 rounded-full font-medium border border-primary-100">
                                 Mode Invite
                             </span>
@@ -321,6 +353,11 @@ const PreprocessingPipeline: React.FC = () => {
                         <h2 className="text-lg font-bold text-navy">Pipeline de Pretraitement</h2>
                         {dataset && (
                             <div className="flex items-center gap-4 text-sm text-gray-500">
+                                {isHistorySession && (
+                                    <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1">
+                                        <History className="h-3 w-3" /> ARCHIVE (LECTURE SEULE)
+                                    </span>
+                                )}
                                 <span>{dataset.rows} lignes</span>
                                 <span>{dataset.columns} colonnes</span>
                             </div>
@@ -349,8 +386,8 @@ const PreprocessingPipeline: React.FC = () => {
                                     <button
                                         key={step.id}
                                         onClick={() => goToStep(step.id)}
-                                        className={`flex flex-col items-center flex-1 ${isAccessible ? 'cursor-pointer' : 'cursor-not-allowed'}`}
-                                        disabled={!isAccessible}
+                                        className={`flex flex-col items-center flex-1 ${isAccessible && !isHistorySession ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                                        disabled={!isAccessible || isHistorySession}
                                     >
                                         <div className={`step-indicator ${isComplete ? 'step-complete' : isActive ? 'step-active' : 'step-pending'}`}>
                                             {isComplete ? <CheckCircle className="h-6 w-6" /> : <Icon className="h-5 w-5" />}
@@ -437,14 +474,35 @@ const PreprocessingPipeline: React.FC = () => {
                                 ) : (
                                     <div className="space-y-3">
                                         {history.map((s) => (
-                                            <div key={s.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                                                <div className="flex items-center gap-2 mb-2">
+                                            <div
+                                                key={s.id}
+                                                onClick={() => handleSelectSession(s)}
+                                                className="bg-gray-50 rounded-xl p-4 border border-gray-100 hover:border-primary/30 hover:bg-primary-50/50 transition-all cursor-pointer group relative shadow-sm hover:shadow-md"
+                                            >
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleDeleteSession(s.id);
+                                                    }}
+                                                    className="absolute top-3 right-3 p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-white transition-all opacity-0 group-hover:opacity-100 shadow-sm"
+                                                    title="Supprimer"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
+
+                                                <div className="flex items-center gap-2 mb-2 pr-8">
                                                     <FileSpreadsheet className="h-4 w-4 text-primary" />
-                                                    <span className="font-medium text-navy text-sm">{s.fileName}</span>
+                                                    <span className="font-bold text-navy text-sm truncate">{s.fileName}</span>
                                                 </div>
                                                 <div className="text-xs text-gray-500 space-y-1">
-                                                    <div>{new Date(s.date).toLocaleDateString('fr')} - {s.rowCount} lignes, {s.columnCount} colonnes</div>
-                                                    <div>{s.transformations.length} transformation(s)</div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <History className="h-3 w-3" />
+                                                        {new Date(s.date).toLocaleDateString('fr')} - {s.rowCount} lignes
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 font-medium text-primary">
+                                                        <Code2 className="h-3 w-3" />
+                                                        {s.transformations.length} transformation(s)
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
