@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
 import { motion, useScroll, useSpring } from 'framer-motion';
-import { ArrowUp } from 'lucide-react';
 import Hero from '../components/landing/Hero';
 import ProcessOverview from '../components/landing/ProcessOverview';
 import MethodDetails from '../components/landing/MethodDetails';
+import Pricing from '../components/landing/Pricing';
 import Footer from '../components/Footer';
 import Navbar from '../components/Navbar';
+import DataBot from '../components/DataBot';
 
 const LandingPage = () => {
     useEffect(() => {
@@ -32,21 +33,12 @@ const LandingPage = () => {
                 <Hero />
                 <ProcessOverview />
                 <MethodDetails />
+                <Pricing />
                 <Footer />
-
-                {/* Back to top */}
-                <motion.button
-                    className="fixed bottom-6 right-6 bg-primary text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg z-50 hover:bg-primary-700 transition-colors"
-                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3, delay: 1 }}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                >
-                    <ArrowUp size={24} />
-                </motion.button>
             </motion.div>
+
+            {/* DataBot floating chatbot */}
+            <DataBot />
         </>
     );
 };

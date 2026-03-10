@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Database, Mail, Lock, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import ForgotPasswordModal from '../components/auth/ForgotPasswordModal';
 
 const LoginPage = () => {
     const [email, setEmail] = useState('');
@@ -11,6 +12,7 @@ const LoginPage = () => {
     const [error, setError] = useState('');
     const { login } = useAuth();
     const navigate = useNavigate();
+    const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -90,6 +92,15 @@ const LoginPage = () => {
                                     {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                                 </button>
                             </div>
+                            <div className="flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsForgotModalOpen(true)}
+                                    className="text-xs font-bold text-primary hover:underline transition-all"
+                                >
+                                    Mot de passe oublié ?
+                                </button>
+                            </div>
                         </div>
 
                         <motion.button
@@ -147,7 +158,7 @@ const LoginPage = () => {
                             className="relative z-10 w-full rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-white/20 backdrop-blur-sm"
                         />
 
-                        {/* Optional subtle text badge if needed, but per request just the image is primary */}
+                        {/* Optional subtle text badge */}
                         <motion.div
                             className="absolute -bottom-6 -right-6 bg-white/10 backdrop-blur-xl border border-white/20 p-4 rounded-2xl shadow-xl hidden md:block"
                             initial={{ x: 20, opacity: 0 }}
@@ -162,6 +173,11 @@ const LoginPage = () => {
                     </motion.div>
                 </div>
             </motion.div>
+
+            <ForgotPasswordModal
+                isOpen={isForgotModalOpen}
+                onClose={() => setIsForgotModalOpen(false)}
+            />
         </div>
     );
 };

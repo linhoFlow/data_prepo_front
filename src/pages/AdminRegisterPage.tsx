@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link } from 'react-router-dom';
-import { Database, Mail, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Mail, Lock, User, ArrowRight, Eye, EyeOff, Shield } from 'lucide-react';
 import axios from 'axios';
 
-const RegisterPage = () => {
+const AdminRegisterPage = () => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
+    const navigate = useNavigate();
 
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -20,7 +21,7 @@ const RegisterPage = () => {
                 name,
                 email,
                 password,
-                role: 'user' // Registrations from here are always clients
+                role: 'manager' // Managers by default
             });
             setSuccess(true);
         } catch (err: any) {
@@ -40,12 +41,12 @@ const RegisterPage = () => {
                 transition={{ duration: 0.6 }}
             >
                 <div className="max-w-md w-full mx-auto">
-                    <Link to="/" className="flex items-center gap-3 mb-12 group">
-                        <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform">
-                            <Database className="h-6 w-6 text-white" />
+                    <div className="flex items-center gap-3 mb-12">
+                        <div className="w-10 h-10 bg-navy text-white rounded-xl flex items-center justify-center shadow-lg shadow-navy/20">
+                            <Shield className="h-6 w-6" />
                         </div>
-                        <span className="text-xl font-bold text-navy">DataPrep <span className="text-primary-500">Pro</span></span>
-                    </Link>
+                        <span className="text-xl font-bold text-navy">Admin<span className="text-primary">Portal</span> <span className="text-primary-400 text-[10px] font-black uppercase tracking-widest ml-1 bg-primary/5 px-2 py-1 rounded-lg">Manager Registration</span></span>
+                    </div>
 
                     <AnimatePresence mode="wait">
                         {success ? (
@@ -55,25 +56,25 @@ const RegisterPage = () => {
                                 animate={{ opacity: 1, scale: 1 }}
                                 className="text-center"
                             >
-                                <div className="w-20 h-20 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
-                                    <Database className="h-10 w-10 text-primary" />
+                                <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 border border-emerald-100 shadow-sm">
+                                    <Shield className="h-10 w-10" />
                                 </div>
-                                <h2 className="text-3xl font-bold text-navy mb-4">Inscription réussie !</h2>
+                                <h2 className="text-3xl font-bold text-navy mb-4">Demande envoyée !</h2>
                                 <p className="text-gray-500 mb-10 leading-relaxed">
-                                    Bienvenue parmi nous, <span className="text-navy font-bold">{name}</span>. Votre compte a été créé avec succès. Vous pouvez maintenant vous connecter pour accéder à l'application.
+                                    Merci <span className="text-navy font-bold">{name}</span>. Votre demande d'accès en tant que gestionnaire a été transmise. Un administrateur doit activer votre compte avant que vous ne puissiez vous connecter.
                                 </p>
-                                <Link
-                                    to="/login"
-                                    className="inline-flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary-600 text-white rounded-2xl py-4 font-bold transition-all shadow-lg shadow-blue-200 group"
+                                <button
+                                    onClick={() => navigate('/admin')}
+                                    className="inline-flex items-center justify-center gap-2 w-full bg-navy hover:bg-slate-800 text-white rounded-2xl py-4 font-bold transition-all shadow-lg shadow-navy/20 group"
                                 >
-                                    Se connecter <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
-                                </Link>
+                                    Retour à la connexion <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                                </button>
                             </motion.div>
                         ) : (
                             <motion.div key="form" exit={{ opacity: 0, y: -20 }}>
-                                <h1 className="text-4xl font-bold text-navy mb-3">Créer un compte</h1>
+                                <h1 className="text-4xl font-bold text-navy mb-3">Rejoindre l'équipe</h1>
                                 <p className="text-gray-500 mb-10 leading-relaxed">
-                                    Rejoignez-nous pour sauvegarder vos pipelines de données et accéder à vos analyses avancées.
+                                    Créez un compte gestionnaire pour commencer à administrer la plateforme. Votre accès sera soumis à validation.
                                 </p>
 
                                 <form onSubmit={handleRegister} className="space-y-5">
@@ -84,8 +85,8 @@ const RegisterPage = () => {
                                             <input
                                                 type="text"
                                                 required
-                                                className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                                placeholder="Ex: Babacar Diop"
+                                                className="w-full bg-slate-50 border border-gray-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-4 focus:ring-navy/5 focus:border-navy transition-all font-medium"
+                                                placeholder="Babacar Diop"
                                                 value={name}
                                                 onChange={(e) => setName(e.target.value)}
                                             />
@@ -99,8 +100,8 @@ const RegisterPage = () => {
                                             <input
                                                 type="email"
                                                 required
-                                                className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                                                placeholder="nom@entreprise.com"
+                                                className="w-full bg-slate-50 border border-gray-100 rounded-2xl py-4 pl-12 pr-4 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-4 focus:ring-navy/5 focus:border-navy transition-all font-medium"
+                                                placeholder="nom@dataprep.secure"
                                                 value={email}
                                                 onChange={(e) => setEmail(e.target.value)}
                                             />
@@ -114,7 +115,7 @@ const RegisterPage = () => {
                                             <input
                                                 type={showPassword ? "text" : "password"}
                                                 required
-                                                className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl py-4 pl-12 pr-12 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                                                className="w-full bg-slate-50 border border-gray-100 rounded-2xl py-4 pl-12 pr-12 text-navy placeholder:text-gray-400 focus:outline-none focus:ring-4 focus:ring-navy/5 focus:border-navy transition-all font-medium"
                                                 placeholder="••••••••"
                                                 value={password}
                                                 onChange={(e) => setPassword(e.target.value)}
@@ -132,7 +133,7 @@ const RegisterPage = () => {
                                     <button
                                         type="submit"
                                         disabled={loading}
-                                        className={`w-full bg-primary hover:bg-primary-600 text-white rounded-2xl py-4 font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2 group mt-4 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                                        className={`w-full bg-navy hover:bg-slate-800 text-white rounded-2xl py-4 font-bold transition-all shadow-lg shadow-navy/20 flex items-center justify-center gap-2 group mt-4 ${loading ? 'opacity-70 cursor-not-allowed' : ''}`}
                                     >
                                         {loading ? (
                                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -145,7 +146,7 @@ const RegisterPage = () => {
                                 </form>
 
                                 <p className="text-center text-gray-500 mt-8 text-sm font-medium">
-                                    Déjà un compte ? <Link to="/login" className="text-primary font-bold hover:underline">Se connecter</Link>
+                                    Déjà un accès ? <Link to="/admin" className="text-navy font-bold hover:underline">Se connecter</Link>
                                 </p>
                             </motion.div>
                         )}
@@ -153,49 +154,25 @@ const RegisterPage = () => {
                 </div>
             </motion.div>
 
-            {/* Right: Illustration (Matching Login) */}
+            {/* Right: Illustration */}
             <motion.div
-                className="hidden lg:flex flex-1 bg-gradient-to-br from-primary-600 via-primary-500 to-blue-600 items-center justify-center p-12 relative overflow-hidden"
+                className="hidden lg:flex flex-1 bg-gradient-to-br from-navy via-slate-900 to-primary-900 items-center justify-center p-12 relative overflow-hidden"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.3 }}
             >
-                {/* Decorative circles */}
-                <motion.div className="absolute top-20 right-20 w-64 h-64 rounded-full bg-white opacity-[0.07]"
-                    animate={{ scale: [1, 1.2, 1] }}
-                    transition={{ duration: 8, repeat: Infinity }}
-                />
-                <motion.div className="absolute bottom-20 left-10 w-48 h-48 rounded-full bg-blue-300 opacity-[0.1]"
-                    animate={{ y: [0, -20, 0] }}
-                    transition={{ duration: 6, repeat: Infinity }}
-                />
-
                 <div className="relative z-10 w-full max-w-lg">
                     <motion.div
                         initial={{ opacity: 0, scale: 0.9, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         transition={{ duration: 0.8, ease: "easeOut" }}
-                        className="relative"
                     >
-                        <div className="absolute -inset-10 bg-white/20 blur-[60px] rounded-full opacity-40 animate-pulse" />
-
+                        <div className="absolute -inset-10 bg-primary/10 blur-[60px] rounded-full opacity-30 animate-pulse" />
                         <img
                             src="/assets/images/image.png"
-                            alt="Data Analysis Illustration"
-                            className="relative z-10 w-full rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-white/20 backdrop-blur-sm"
+                            alt="Admin Registration Illustration"
+                            className="relative z-10 w-full rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 backdrop-blur-sm grayscale-[20%]"
                         />
-
-                        <motion.div
-                            className="absolute -bottom-6 -right-6 bg-white/10 backdrop-blur-xl border border-white/20 p-4 rounded-2xl shadow-xl hidden md:block"
-                            initial={{ x: 20, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            transition={{ delay: 1, duration: 0.5 }}
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                                <span className="text-white text-xs font-bold uppercase tracking-wider">Traitement Temps Réel</span>
-                            </div>
-                        </motion.div>
                     </motion.div>
                 </div>
             </motion.div>
@@ -203,4 +180,4 @@ const RegisterPage = () => {
     );
 };
 
-export default RegisterPage;
+export default AdminRegisterPage;

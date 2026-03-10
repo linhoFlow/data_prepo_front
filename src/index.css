@@ -107,6 +107,14 @@
     @apply bg-navy-300 rounded-full hover:bg-navy-400;
 }
 
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-primary-200 rounded-full hover:bg-primary-300;
+}
+
 /* Animations for pipeline steps */
 .step-indicator {
     @apply relative z-10 w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all duration-500;

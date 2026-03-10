@@ -43,7 +43,7 @@ const Footer = () => {
 
                     {/* Navigation */}
                     <div className="lg:pl-8">
-                        <h4 className="text-xl font-bold mb-8 flex items-center gap-2">
+                        <h4 className="text-xl font-bold mb-8 flex items-center gap-2 text-white">
                             Navigation
                         </h4>
                         <ul className="space-y-4">
@@ -63,7 +63,7 @@ const Footer = () => {
 
                     {/* Resources */}
                     <div>
-                        <h4 className="text-xl font-bold mb-8 flex items-center gap-2">
+                        <h4 className="text-xl font-bold mb-8 flex items-center gap-2 text-white">
                             Ressources
                         </h4>
                         <ul className="space-y-4">
@@ -76,7 +76,7 @@ const Footer = () => {
 
                     {/* Contact */}
                     <div>
-                        <h4 className="text-xl font-bold mb-8 flex items-center gap-2">
+                        <h4 className="text-xl font-bold mb-8 flex items-center gap-2 text-white">
                             Contact
                         </h4>
                         <div className="space-y-6">

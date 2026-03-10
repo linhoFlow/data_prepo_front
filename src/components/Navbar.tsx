@@ -3,13 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Database, Menu, X, User, LogOut } from 'lucide-react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { SessionTimer } from './SessionTimer';
 
 const Navbar = () => {
     const [isScrolled, setIsScrolled] = useState(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
-    const { user, isAuthenticated, logout } = useAuth();
+    const { user, isAuthenticated, isGuest, tier, logout, startGuestSession } = useAuth();
+
+    const tierLabels: Record<string, string> = {
+        guest: 'Invité',
+        starter: 'Membre',
+        pro: 'Premium',
+        enterprise: 'Premium',
+    };
 
     useEffect(() => {
         const handleScroll = () => {
@@ -23,6 +31,7 @@ const Navbar = () => {
         { name: 'Accueil', href: '/' },
         { name: 'Processus', href: '#processus' },
         { name: 'Méthodes', href: '#methodes' },
+        { name: 'Stratégie', href: '#tarifs' },
     ];
 
     const handleAction = () => {
@@ -45,12 +54,12 @@ const Navbar = () => {
             <div className="container-fluid flex items-center justify-between px-4 md:px-8">
                 {/* Logo */}
                 <Link to="/" className="flex items-center gap-2 group">
-                    <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform duration-300">
+                    <div className="w-10 h-10 bg-navy-700 rounded-xl flex items-center justify-center shadow-lg shadow-navy-700/20 group-hover:scale-105 transition-transform duration-300">
                         <Database className="text-white h-6 w-6" />
                     </div>
                     <span className="text-2xl font-bold tracking-tight text-navy">
-                        DataPrep <span className="text-primary">Pro</span>
-                        <div className="h-1 bg-primary/20 w-full rounded-full mt-[-4px]"></div>
+                        DataPrep <span className="text-navy-700">Pro</span>
+                        <div className="h-1 bg-navy-700/20 w-full rounded-full mt-[-4px]"></div>
                     </span>
                 </Link>
 
@@ -60,14 +69,14 @@ const Navbar = () => {
                         <a
                             key={link.name}
                             href={link.href}
-                            className={`text-sm font-semibold transition-all duration-300 relative py-1 ${isActive(link.href) ? 'text-primary' : 'text-navy-800 hover:text-primary'
+                            className={`text-sm font-semibold transition-all duration-300 relative py-1 ${isActive(link.href) ? 'text-navy-700' : 'text-navy-800 hover:text-navy-700'
                                 }`}
                         >
                             {link.name}
                             {isActive(link.href) && (
                                 <motion.div
                                     layoutId="nav-underline"
-                                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
+                                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-navy-700"
                                 />
                             )}
                         </a>
@@ -76,14 +85,23 @@ const Navbar = () => {
 
                 {/* Auth Actions */}
                 <div className="hidden lg:flex items-center gap-4">
+                    {/* Session Timer for guests */}
+                    {isGuest && <SessionTimer />}
+
                     {isAuthenticated ? (
                         <div className="flex items-center gap-4">
+                            {/* Tier Badge - Hidden for staff */}
+                            {user?.role === 'user' && (
+                                <span className="text-xs font-bold px-3 py-1 rounded-full bg-navy-700/10 text-navy-700 uppercase tracking-wide">
+                                    {tierLabels[tier] || tier}
+                                </span>
+                            )}
                             <span className="text-sm font-bold text-navy-700 flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-full">
-                                <User className="h-4 w-4 text-primary" /> {user?.name}
+                                <User className="h-4 w-4 text-navy-700" /> {user?.name}
                             </span>
                             <button
                                 onClick={logout}
-                                className="p-2 text-gray-400 hover:text-primary transition-colors"
+                                className="p-2 text-gray-400 hover:text-navy-700 transition-colors"
                                 title="Déconnexion"
                             >
                                 <LogOut className="h-5 w-5" />
@@ -92,13 +110,25 @@ const Navbar = () => {
                                 Mon Pipeline
                             </button>
                         </div>
-                    ) : (
+                    ) : isGuest ? (
                         <div className="flex items-center gap-2">
-                            <Link to="/login" className="text-sm font-bold text-navy-800 hover:text-primary px-4 py-2">
+                            <button
+                                onClick={() => navigate('/app')}
+                                className="text-xs font-bold px-4 py-2 rounded-full bg-navy-700/10 text-navy-700 hover:bg-navy-700/20 transition-colors uppercase tracking-wide cursor-pointer"
+                            >
+                                Essayer sans compte
+                            </button>
+                            <Link to="/login" className="btn-primary px-6 rounded-full shadow-lg shadow-navy-700/20 text-sm">
                                 Se connecter
                             </Link>
-                            <button onClick={handleAction} className="btn-primary px-8 rounded-full shadow-lg shadow-primary/20">
-                                Démarrer
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2">
+                            <Link to="/login" className="text-sm font-bold text-navy-800 hover:text-navy-700 px-4 py-2">
+                                Se connecter
+                            </Link>
+                            <button onClick={async () => { await startGuestSession(); navigate('/app'); }} className="btn-primary px-8 rounded-full shadow-lg shadow-navy-700/20">
+                                Essayer sans compte
                             </button>
                         </div>
                     )}
@@ -128,7 +158,7 @@ const Navbar = () => {
                                     key={link.name}
                                     href={link.href}
                                     onClick={() => setMobileMenuOpen(false)}
-                                    className={`text-lg font-bold py-2 border-b border-gray-50 ${isActive(link.href) ? 'text-primary pl-2' : 'text-navy-800'
+                                    className={`text-lg font-bold py-2 border-b border-gray-50 ${isActive(link.href) ? 'text-navy-700 pl-2' : 'text-navy-800'
                                         }`}
                                 >
                                     {link.name}
@@ -138,7 +168,7 @@ const Navbar = () => {
                                 {isAuthenticated ? (
                                     <>
                                         <div className="flex items-center gap-2 py-2 text-navy-700 font-bold border-b border-gray-50">
-                                            <User className="h-5 w-5 text-primary" /> {user?.name}
+                                            <User className="h-5 w-5 text-navy-700" /> {user?.name}
                                         </div>
                                         <button onClick={handleAction} className="btn-primary w-full py-4 rounded-xl">
                                             Mon Pipeline
@@ -156,7 +186,7 @@ const Navbar = () => {
                                         >
                                             Se connecter
                                         </Link>
-                                        <button onClick={handleAction} className="btn-primary w-full py-4 rounded-xl shadow-lg shadow-primary/20">
+                                        <button onClick={handleAction} className="btn-navy-700 w-full py-4 rounded-xl shadow-lg shadow-navy-700/20">
                                             Démarrer gratuitement
                                         </button>
                                     </>
